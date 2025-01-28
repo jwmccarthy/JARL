@@ -56,6 +56,9 @@ class MultiIterable(ABC):
     def items(self) -> Iterable[Tuple[str, Iterable | Self]]:
         return self._data.items()
     
+    def keys(self) -> Iterable[str]:
+        return self._data.keys()
+    
     def set(self, **data: NestedIterable) -> Self:
         for key, val in data.items():
             self._data[key] = self._parse(val)
