@@ -6,7 +6,7 @@ from typing import Set
 from jarl.data.types import LossInfo
 from jarl.modules.policy import Policy
 from jarl.data.multi import MultiTensor
-from jarl.train.optimizer import Optimizer
+from jarl.train.optim import Optimizer
 from jarl.train.update.base import GradientUpdate
 
 
@@ -16,13 +16,13 @@ class ClippedPolicyUpdate(GradientUpdate):
         self, 
         freq: int,
         policy: Policy, 
-        optimizer: Optimizer,
-        epsilon: float = 0.2,
+        optimizer: Optimizer = None,
+        clip: float = 0.2,
         ent_coef: float = 0.01
     ) -> None:
-        super().__init__(freq, optimizer, policy)
+        super().__init__(freq, policy, optimizer=optimizer)
         self.policy = policy
-        self.epsilon = epsilon
+        self.clip = clip
         self.ent_coef = ent_coef
 
     @property
@@ -37,18 +37,18 @@ class ClippedPolicyUpdate(GradientUpdate):
             approx_kl = (lgp - data.lgp).mean().item()
 
         # policy loss
-        norm_adv = F.normalize(data.adv)
+        norm_adv = (data.adv - data.adv.mean()) / (data.adv.std() + 1e-8)
         ratios = th.exp(lgp - data.lgp)
         p_loss = -th.min(
-            ratios * norm_adv,
-            th.clamp(ratios, 1 - self.epsilon, 1 + self.epsilon) * norm_adv
-        )
+            norm_adv * ratios,
+            norm_adv * th.clamp(ratios, 1 - self.clip, 1 + self.clip)
+        ).mean()
 
         # entropy loss
-        e_loss = -ent.mean()
+        e_loss = self.ent_coef * -ent.mean()
 
         # total loss
-        t_loss = p_loss + self.ent_coef * e_loss
+        t_loss = p_loss + e_loss
 
         return t_loss, dict(
             policy_loss=p_loss.item(),

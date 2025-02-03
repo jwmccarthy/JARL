@@ -10,10 +10,10 @@ class Optimizer:
         self.op_kwargs = op_kwargs
         self.max_grad_norm = max_grad_norm
 
-    def build(self, *modules):
+    def build(self, modules):
         self.params = chain(*[m.parameters() for m in modules])
         self.optimizer = self.optimizer(self.params, **self.op_kwargs)
-        return self.optimizer
+        return self
     
     def update(self, loss):
         self.optimizer.zero_grad()

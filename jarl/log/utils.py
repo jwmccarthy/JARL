@@ -1,0 +1,28 @@
+import torch as th
+
+from typing import List
+
+from jarl.data.multi import MultiTensor
+
+
+def get_episodes(data: MultiTensor) -> List[MultiTensor]:
+    episodes = []
+
+    # get indices for episode boundaries
+    end_idx = th.nonzero(data.don).squeeze().tolist()
+    if isinstance(end_idx, int):
+        end_idx = [end_idx]
+    beg_idx = [0] + [i + 1 for i in end_idx]
+
+    for i, j in zip(beg_idx, end_idx):
+        episodes.append(data[i:j+1])
+
+    return episodes
+
+
+def episodic_return(data: MultiTensor) -> List[float]:
+    return [e.rew.sum().item() for e in get_episodes(data)]
+
+
+def episodic_length(data: MultiTensor) -> List[int]:
+    return [len(e) for e in get_episodes(data)]

@@ -1,12 +1,14 @@
-from typing import Any, Self, Dict
+import torch as th
+
 from collections import defaultdict
+from typing import Any, Self, Dict, List
 
 from jarl.data.multi import MultiTensor
 from jarl.train.sample.base import BatchSampler
 from jarl.train.update.base import ModuleUpdate
 from jarl.train.modify.base import DataModifier
 
-from jarl.train.graph.utils import (
+from jarl.train.utils import (
     all_combinations, 
     compose_funcs,
     topological_sort
@@ -18,9 +20,12 @@ class TrainGraph:
     def __init__(
         self, 
         sampler: BatchSampler,
-        *updates: ModuleUpdate
+        updates: ModuleUpdate | List[ModuleUpdate]
     ) -> None:
         self.sampler = sampler
+
+        if not isinstance(updates, list):
+            updates = [updates]
         self.updates = updates
 
         # dependency graph construction
@@ -54,27 +59,32 @@ class TrainGraph:
             current_deps = []
             
             # init required keys for update combo
-            requires_keys = set()
+            prd_keys, req_keys = set(), set()
             for update in updates:
-                requires_keys |= update.requires_keys
+                req_keys |= update.requires_keys
 
             # obtain deps for current update
             for m in global_top:
-                if m.produces_keys & requires_keys:
+                if m.produces_keys & req_keys:
                     current_deps.append(m)
-                    requires_keys |= m.requires_keys
+                    req_keys |= m.requires_keys
+                    prd_keys |= m.produces_keys
+
+            # check all dependencies met
+            missing_deps = req_keys - prd_keys
+            if missing_deps:
+                raise ValueError(f"Missing dependencies: {missing_deps}")
 
             # nested functions for each update
-            # func = compose_funcs(current_deps[::-1])
-            # self.update_dep.append(func)
-            self.update_dep.append(current_deps[::-1])
+            func = compose_funcs(current_deps)
+            self.update_dep.append(func)
 
         del self.mod_graph  # graph not needed after compilation
 
         return self
     
     def ready(self, t: int) -> bool:
-        mod_idx = -1
+        mod_idx = 0
 
         # get ready updates & corresponding deps 
         for i, update in enumerate(self.updates):
@@ -82,16 +92,15 @@ class TrainGraph:
                 mod_idx += 1 << i
                 self.update_queue.append(update)
 
-        # set active dependency function if ready
-        if (is_ready := bool(self.update_queue)):
-            self.active_dep = self.update_dep[mod_idx]
+        self.active_dep = self.update_dep[mod_idx]
 
-        return is_ready
+        return bool(self.update_queue)
     
-    def __call__(self, data: MultiTensor) -> Dict[str, Any]:
-        data = self.active_dep(data)
+    def update(self, data: MultiTensor) -> Dict[str, Any]:
+        with th.no_grad(): 
+            data = self.active_dep(data)
 
-        for batch in self.sampler(data):
+        for batch in self.sampler.sample(data):
             batch_info = {}
             for update in self.update_queue:
                 batch_info |= update(batch)

@@ -27,7 +27,7 @@ class Policy(CompositeNet, ABC):
         super().__init__(head, body)
 
     def build(self, env: TorchGymEnv) -> Self:
-        super().build(env, env.act_space.flat_dim)
+        return super().build(env, env.act_space.flat_dim)
 
     @abstractmethod
     @lru_cache(maxsize=1)

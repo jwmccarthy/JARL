@@ -7,7 +7,8 @@ from typing import (
     Union, 
     Dict, 
     Tuple,
-    Any
+    Any, 
+    Generator
 )
 
 
@@ -29,7 +30,7 @@ torch_to_numpy = {
 }
 
 # composite types
-Index = int | slice | Iterable[int]
+Index = int | slice | Iterable[int] | Tensor
 Device = str | th.device
 
 # nested dicts
@@ -38,3 +39,4 @@ NestedTensorDict = Dict[str, Union[Tensor, "NestedTensorDict"]]
 
 # computations
 LossInfo = Tuple[th.Tensor, Dict[str, Any]]
+SampleOutput = Generator[Iterable, None, None]

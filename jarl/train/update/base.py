@@ -6,7 +6,7 @@ from typing import Any, Dict, Set, List
 
 from jarl.data.types import LossInfo
 from jarl.data.multi import MultiTensor
-from jarl.train.optimizer import Optimizer
+from jarl.train.optim import Optimizer
 
 
 class ModuleUpdate(ABC):
@@ -24,7 +24,7 @@ class ModuleUpdate(ABC):
         ...
 
     def ready(self, t: int) -> bool:
-        return t % self.freq == 0
+        return t != 0 and t % self.freq == 0
     
 
 class GradientUpdate(ModuleUpdate, ABC):
@@ -32,13 +32,24 @@ class GradientUpdate(ModuleUpdate, ABC):
     def __init__(
         self, 
         freq: int, 
-        optimizer: Optimizer,
-        modules: nn.Module | List[nn.Module]
+        modules: nn.Module | List[nn.Module],
+        optimizer: Optimizer = None
     ) -> None:
         super().__init__(freq)
-        if isinstance(modules, nn.Module):
+
+        if not isinstance(modules, list):
             modules = [modules]
-        self.optimizer = optimizer.build(*modules)
+        self.modules = modules
+
+        # build optimizer if given
+        self.optimizer = optimizer
+        if self.optimizer is not None:
+            self.build(self.optimizer)
+
+    def build(self, optimizer: Optimizer) -> None:
+        self.optimizer = optimizer
+        self.optimizer.build(self.modules)
+        return self
 
     @abstractmethod
     def loss(self, data: MultiTensor) -> LossInfo:

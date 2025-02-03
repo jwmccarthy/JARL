@@ -2,12 +2,24 @@ import torch as th
 from torch import Tensor
 
 from typing import Self
+from abc import ABC, abstractmethod
 
 from jarl.data.multi import MultiTensor
 from jarl.data.types import Device, NestedTensorDict
 
 
-class LazyBuffer:
+class Buffer(ABC):
+
+    @abstractmethod
+    def store(self, data: NestedTensorDict) -> None:
+        ...
+
+    @abstractmethod
+    def serve(self) -> MultiTensor:
+        ...
+
+
+class LazyBuffer(Buffer):
     """Replay buffer for storing transitions"""
 
     def __init__(
@@ -15,6 +27,7 @@ class LazyBuffer:
         size: int,
         device: Device = "cpu"
     ) -> None:
+        super().__init__()
         self._idx = 0
         self.size = size
         self.full = False
@@ -55,7 +68,7 @@ class LazyBuffer:
         self.reset()
         self.data = None
 
-    def store(self, **data: NestedTensorDict) -> None:
+    def store(self, data: NestedTensorDict) -> None:
         # lazy-initialize tensor storage
         if self._idx == 0 and not self.full:
             self._lazy_init(data)

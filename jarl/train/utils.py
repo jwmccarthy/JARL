@@ -1,10 +1,12 @@
+import torch as th
+
 from functools import reduce
 from itertools import combinations
 from typing import Any, Dict, Set, List
 
 
 def all_combinations(iterable):
-    for i in range(1, len(iterable) + 1):
+    for i in range(0, len(iterable) + 1):
         yield from combinations(iterable, i)
 
 
@@ -17,7 +19,6 @@ def compose_funcs(functions):
 
 
 def topological_sort(graph: Dict[Any, Set[Any]]) -> List[Any]:
-
     def _sort_util(
         node: Any, 
         visited: Dict[Any, bool], 

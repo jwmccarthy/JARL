@@ -44,7 +44,7 @@ class TorchGymEnv:
         obs, rew, trm, trc = self._step(trs.act)
 
         # non-space vals to tensors
-        trs.rew = th.as_tensor(rew)
+        trs.rew = th.as_tensor(rew, dtype=th.float32)
         trs.trc = th.as_tensor(trc | stop)
         trs.don = th.as_tensor(trm | trs.trc)
 

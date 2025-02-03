@@ -5,7 +5,7 @@ from typing import Set
 from jarl.data.types import LossInfo
 from jarl.data.multi import MultiTensor
 from jarl.modules.operator import Critic
-from jarl.train.optimizer import Optimizer
+from jarl.train.optim import Optimizer
 from jarl.train.update.base import GradientUpdate
 
 
@@ -15,10 +15,10 @@ class MSECriticUpdate(GradientUpdate):
         self, 
         freq: int, 
         critic: Critic,
-        optimizer: Optimizer, 
+        optimizer: Optimizer = None, 
         val_coef: float = 0.5
     ) -> None:
-        super().__init__(freq, optimizer, critic)
+        super().__init__(freq, critic, optimizer=optimizer)
         self.critic = critic
         self.val_coef = val_coef
 
@@ -28,5 +28,5 @@ class MSECriticUpdate(GradientUpdate):
 
     def loss(self, data: MultiTensor) -> LossInfo:
         val = self.critic(data.obs)
-        loss = self.val_coef * F.mse_loss(val, data.val)
+        loss = self.val_coef * F.mse_loss(data.ret, val)
         return loss, dict(critic_loss=loss.item())
