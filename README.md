@@ -64,7 +64,7 @@ graph.compile()
 which does the following:
 
 1. Perform a topological sort of all ```DataModifier```s based on their dependencies (required and produced keys)
-2. For each combination of ```ModuleUpdate```s in the graph, extract the necessary ```DataModifier```s sequence
+2. For each combination of ```ModuleUpdate```s in the graph, extract the necessary ```DataModifier``` sequence
 3. Create a function composition from each sequence and store indexed by binary mask of module combination
 
 From here, we can have updates of varying frequency that run only their necessary prerequisite ```DataModifier```s when they're ready. This is wildly overkill for simple algorithms, but it is highly generalizable, customizable, and makes intuitive sense for algorithms with multiple updates that operate at different frequencies. For instance, SAC may utilize different update timings for its Q updates, policy updates, and target network Polyak updates.
