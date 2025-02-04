@@ -4,9 +4,9 @@ JARL is written to be highly modular and allow for rapid prototyping of differen
 Eventually, many existing algorithms will be implemented by default within JARL. Their core components will therefore be available to rearrange and refactor into more novel approaches.
 JARL utilizes a few core proprietary objects...
 
-### 1. MultiTensor
+### 1. ```MultiTensor```
 
-A __MultiTensor__ is just a nested Python dictionary of PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
+A ```MultiTensor``` is just a nested Python dictionary of PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
 
 ```python
 import torch as th
