@@ -35,7 +35,7 @@ A ```Sampler``` maps the ```MultiTensor``` served by the replay buffer to a gene
 
 #### 2. ```ModuleUpdate```
 
-A ```ModuleUpdate``` contains a set of ```torch.nn.Module``` derivative classes, and takes as input a ```MultiTensor``` that of the prerequisite information for its loss calculation. Each ```ModuleUpdate``` also has a set of required keys that should be present in its input. ```ModuleUpdate.ready(t)``` indicates whether the module is ready to update at a given timestep, which is determined by its update frequency (```freq``` parameter).
+A ```ModuleUpdate``` contains a set of ```torch.nn.Module``` derivative classes, and takes as input a ```MultiTensor``` of the prerequisite information for its loss calculation. Each ```ModuleUpdate``` also has a set of required keys that should be present in its input. ```ModuleUpdate.ready(t)``` indicates whether the module is ready to update at a given timestep, which is determined by its update frequency (```freq``` parameter).
 
 #### 3. ```DataModifier```
 
