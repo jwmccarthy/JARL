@@ -15,6 +15,7 @@ from jarl.train.utils import (
 )
 
 
+# we can assume these keys will come from the buffer
 ROOT = {"obs", "act", "rew", "don", "next_obs", "trc"}
 
 
