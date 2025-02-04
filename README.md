@@ -19,7 +19,6 @@ data = MultiTensor(dict(
     )
 ))
 
-# data[:3].a == data.a[:3]
-# data[:3].c.d == data.c.d[:3]
-# and so on
+all(data[:3].a == data.a[:3])     # => True
+all(data[:3].c.d == data.c.d[:3]) # => True
 ```
