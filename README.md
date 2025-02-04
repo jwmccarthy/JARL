@@ -6,7 +6,7 @@ JARL utilizes a few core proprietary objects...
 
 ### 1. MultiTensor
 
-A MultiTensor is just a nested Python dictionary of PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
+A __MultiTensor__ is just a nested Python dictionary of PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
 
 ```python
 import torch as th
@@ -22,3 +22,9 @@ data = MultiTensor(dict(
 all(data[:3].a == data.a[:3])     # => True
 all(data[:3].c.d == data.c.d[:3]) # => True
 ```
+
+This is useful for the construction of easy-to-manipulate replay buffers and the passing of complex information between modules.
+
+### 2. TrainGraph
+
+The TrainGraph is the heart
