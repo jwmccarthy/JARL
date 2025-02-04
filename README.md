@@ -27,4 +27,38 @@ This is useful for the construction of easy-to-manipulate replay buffers and the
 
 ### ```TrainGraph```
 
-The ```TrainGraph``` is the heart if the RL train loop in JARL. It takes as initial arguments a ```Sampler``` and a list of ```ModuleUpdate```.
+The ```TrainGraph``` is the core of the RL training loop in JARL. It relies on the following components:
+
+#### 1. ```Sampler```
+
+A ```Sampler``` maps the ```MultiTensor``` served by the replay buffer to a generator ```MultiTensor```s, each containing a subset of the original data.
+
+#### 2. ```ModuleUpdate```
+
+A ```ModuleUpdate``` contains a set of ```torch.nn.Module``` derivative classes, and takes as input a ```MultiTensor``` that contains the prerequisite information for its loss calculation. Each ```ModuleUpdate``` also has a set of required keys that should be present in its input.
+
+#### 3. ```DataModifier```
+
+A ```DataModifier``` takes a ```MultiTensor``` as input and returns the same object plus some modifications (altered contents, additional information, etc.) Similar to ```ModuleUpdate```, each ```DataModifier``` has a set of required keys, as well as a set of keys that it produces in its output.
+
+With these 3 module types in mind, we can construct a ```TrainGraph```. We initialize it with a sampler and a list of ```ModuleUpdate```s, and then iteratively add the ```DataModifier```s we need via the ```TrainGraph.add_modifier()``` method.
+
+```python
+graph = (
+    TrainGraph(BatchSampler(), PPOUpdate(policy, critic))
+    .add_modifier(ComputeValues(critic))
+    .add_modifier(ComputeAdvantages())
+    .add_modifier(ComputeReturns())
+    .add_modifier(ComputeLogProbs())
+)
+```
+
+At the end we call 
+
+```python
+graph.compile()
+```
+
+which does the following:
+
+#### 1.
