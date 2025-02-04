@@ -4,7 +4,7 @@ JARL is written to be highly modular and allow for rapid prototyping of differen
 Eventually, many existing algorithms will be implemented by default within JARL. Their core components will therefore be available to rearrange and refactor into more novel approaches.
 JARL utilizes a few core proprietary objects...
 
-### 1. ```MultiTensor```
+### ```MultiTensor```
 
 A ```MultiTensor``` is just a nested Python dictionary of PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
 
@@ -25,6 +25,6 @@ all(data[:3].c.d == data.c.d[:3]) # => True
 
 This is useful for the construction of easy-to-manipulate replay buffers and the passing of complex information between modules.
 
-### 2. TrainGraph
+### ```TrainGraph```
 
-The TrainGraph is the heart
+The ```TrainGraph``` is the heart if the RL train loop in JARL. It takes as initial arguments a ```Sampler``` and a list of ```ModuleUpdate```.
