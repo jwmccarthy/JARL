@@ -31,7 +31,7 @@ The ```TrainGraph``` is the core of the RL training loop in JARL. It relies on t
 
 #### 1. ```Sampler```
 
-A ```Sampler``` maps the ```MultiTensor``` served by the replay buffer to a generator ```MultiTensor```s, each containing a subset of the original data.
+A ```Sampler``` maps the ```MultiTensor``` served by the replay buffer to a generator of ```MultiTensor```s, each containing a subset of the original data.
 
 #### 2. ```ModuleUpdate```
 
