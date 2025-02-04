@@ -1,4 +1,4 @@
-from torch import Tensor
+import torch as th
 
 from abc import ABC, abstractmethod
 from multimethod import multimethod
@@ -78,10 +78,15 @@ class MultiTensor(MultiIterable):
         self._device = device
         super().__init__(tensors)
 
-    def _parse(self, val: Tensor | NestedTensorDict) -> Tensor | Self:
+    def _parse(self, val: th.Tensor | NestedTensorDict) -> th.Tensor | Self:
+        if isinstance(val, MultiTensor):
+            val = val._data
         if isinstance(val, dict):
             return MultiTensor(val, self.device)
         return val.to(self.device)
+    
+    def __reduce__(self):
+        return (self.__class__, (self._data, self._device))
 
     @property
     def device(self) -> Device:

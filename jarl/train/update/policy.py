@@ -27,7 +27,7 @@ class ClippedPolicyUpdate(GradientUpdate):
 
     @property
     def requires_keys(self) -> Set[str]:
-        return {"adv", "lgp", "val"}
+        return {"obs", "act", "adv", "lgp", "val"}
 
     def loss(self, data: MultiTensor) -> LossInfo:
         lgp = self.policy.logprob(data.obs, data.act)

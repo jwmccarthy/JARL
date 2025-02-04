@@ -45,7 +45,7 @@ class PPOUpdate(GradientUpdate):
 
     @property
     def requires_keys(self) -> Set[str]:
-        return {"adv", "lgp", "val", "ret"}
+        return {"obs", "act", "adv", "lgp", "val", "ret"}
     
     def loss(self, data: MultiTensor) -> LossInfo:
         p_loss, p_info = self.policy_loss(data)

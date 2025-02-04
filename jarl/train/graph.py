@@ -15,6 +15,9 @@ from jarl.train.utils import (
 )
 
 
+ROOT = {"obs", "act", "rew", "don", "next_obs", "trc"}
+
+
 class TrainGraph:
 
     def __init__(
@@ -71,7 +74,7 @@ class TrainGraph:
                     prd_keys |= m.produces_keys
 
             # check all dependencies met
-            missing_deps = req_keys - prd_keys
+            missing_deps = req_keys - prd_keys - ROOT
             if missing_deps:
                 raise ValueError(f"Missing dependencies: {missing_deps}")
 

@@ -24,7 +24,7 @@ class MSECriticUpdate(GradientUpdate):
 
     @property
     def requires_keys(self) -> Set[str]:
-        return {"ret"}
+        return {"obs", "ret"}
 
     def loss(self, data: MultiTensor) -> LossInfo:
         val = self.critic(data.obs)

@@ -23,7 +23,10 @@ class Logger:
         episodes = get_episodes(data)
 
         # log episodic metrics
-        self.ep_rets.extend([e.rew.sum().item() for e in episodes])
+        if "raw_rew" in data:
+            self.ep_rets.extend([e.raw_rew.sum().item() for e in episodes])
+        else:
+            self.ep_rets.extend([e.rew.sum().item() for e in episodes])
         self.ep_lens.extend([len(e) for e in episodes])
 
         # update progress bar

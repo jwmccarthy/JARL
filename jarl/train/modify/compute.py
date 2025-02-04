@@ -5,6 +5,7 @@ from typing import Set
 from jarl.data.multi import MultiTensor
 from jarl.modules.policy import Policy
 from jarl.modules.operator import Critic
+from jarl.modules.discriminator import Discriminator
 from jarl.train.modify.base import DataModifier
 
 
@@ -15,7 +16,7 @@ class ComputeValues(DataModifier):
 
     @property
     def requires_keys(self) -> Set[str]:
-        return set()  # assume default buffer input
+        return {"obs"} # assume default buffer input
 
     @property
     def produces_keys(self) -> Set[str]:
@@ -34,7 +35,7 @@ class ComputeLogProbs(DataModifier):
 
     @property
     def requires_keys(self) -> Set[str]:
-        return set()
+        return {"obs", "act"}
 
     @property
     def produces_keys(self) -> Set[str]:
@@ -57,7 +58,7 @@ class ComputeAdvantages(DataModifier):
 
     @property
     def requires_keys(self) -> Set[str]:
-        return {"val", "next_val"}
+        return {"rew", "val", "next_val"}
 
     @property
     def produces_keys(self) -> Set[str]:
@@ -91,4 +92,23 @@ class ComputeReturns(DataModifier):
 
     def __call__(self, data: MultiTensor) -> MultiTensor:
         data.set(ret=data.val + data.adv)
+        return data
+    
+
+class DiscriminatorReward(DataModifier):
+
+    def __init__(self, discriminator: Discriminator) -> None:
+        self.discriminator = discriminator
+
+    @property
+    def requires_keys(self) -> Set[str]:
+        return {"obs", "next_obs"}
+    
+    @property
+    def produces_keys(self) -> Set[str]:
+        return {"rew"}
+    
+    def __call__(self, data: MultiTensor) -> MultiTensor:
+        data.set(raw_rew=data.rew)
+        data.set(rew=-th.log(self.discriminator(data.obs, data.next_obs) + 1e-8))
         return data

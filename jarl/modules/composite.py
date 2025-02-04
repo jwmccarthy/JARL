@@ -20,9 +20,9 @@ class CompositeNet(nn.Module):
         self.head = head
         self.body = body
 
-    def build(self, env: TorchGymEnv, out_dims: int = 1) -> Self:
-        feats = self.head.build(env.obs_space).feats
-        self.body.build(feats, out_dims)
+    def build(self, env: TorchGymEnv, out_dim: int = 1) -> Self:
+        self.head.build(env.obs_space)
+        self.body.build(self.head.feats, out_dim)
         self.model = nn.Sequential(self.head, self.body)
         return self
     
