@@ -69,7 +69,7 @@ class ComputeAdvantages(DataModifier):
         data.set(adv=th.zeros_like(data.rew))
 
         # compute TD errors
-        # data.rew[trc & ~don] += data.next_val[trc & ~don]
+        data.rew[trc & ~don] += data.next_val[trc & ~don]
         deltas = data.rew + self.gamma * data.next_val * ~don - data.val
         discnt = self.gamma * self.lmbda * ~don
 
@@ -98,7 +98,7 @@ class ComputeReturns(DataModifier):
 class DiscriminatorReward(DataModifier):
 
     def __init__(self, discriminator: Discriminator) -> None:
-        self.discriminator = discriminator
+        self.disc = discriminator
 
     @property
     def requires_keys(self) -> Set[str]:
@@ -109,6 +109,6 @@ class DiscriminatorReward(DataModifier):
         return {"rew"}
     
     def __call__(self, data: MultiTensor) -> MultiTensor:
-        data.set(raw_rew=data.rew)
-        data.set(rew=-th.log(self.discriminator(data.obs, data.next_obs) + 1e-8))
+        obs_pair = th.cat([data.obs, data.next_obs], -1)
+        data.set(rew=-th.log(self.disc(obs_pair) + 1e-8))
         return data

@@ -20,14 +20,8 @@ class Discriminator(CompositeNet):
     def build(self, env: TorchGymEnv) -> Self:
         self.head = self.head.build(env.obs_space)
         self.body.build(self.head.feats * 2, 1)
+        self.body.model.append(nn.Sigmoid())
         return self
 
-    def forward(
-        self, 
-        obs: th.Tensor, 
-        next_obs: th.Tensor
-    ) -> th.Tensor:
-        obs_feats = self.head(obs)
-        next_obs_feats = self.head(next_obs)
-        feat_pair = th.cat([obs_feats, next_obs_feats], dim=1)
-        return th.sigmoid(self.body(feat_pair)).squeeze()
+    def forward(self, obs_pair: th.Tensor) -> th.Tensor:
+        return self.body(obs_pair).squeeze()

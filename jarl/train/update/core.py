@@ -1,5 +1,5 @@
+import torch as th
 import torch.nn as nn
-import torch.nn.functional as F
 
 from typing import Set
 
@@ -11,6 +11,8 @@ from jarl.train.update.base import GradientUpdate
 
 class CrossEntropyUpdate(GradientUpdate):
     
+    loss_func = nn.BCELoss()
+
     def __init__(
         self, 
         freq: int, 
@@ -22,9 +24,21 @@ class CrossEntropyUpdate(GradientUpdate):
 
     @property
     def requires_keys(self) -> Set[str]:
-        return {"obs", "next_obs", "lbl"}
+        return {"pol_obs", "exp_obs"}
 
     def loss(self, data: MultiTensor) -> LossInfo:
-        logits = self.model(data.obs, data.next_obs)
-        loss = F.binary_cross_entropy_with_logits(logits, data.lbl)
-        return loss, dict(x_entropy=loss.item())
+        # current policy loss
+        pol_prob = self.model(data.pol_obs)
+        pol_loss = self.loss_func(pol_prob, th.ones_like(pol_prob))
+
+        # expert data loss
+        exp_prob = self.model(data.exp_obs)
+        exp_loss = self.loss_func(exp_prob, th.zeros_like(exp_prob))
+
+        loss = pol_loss + exp_loss
+
+        return loss, dict(
+            exp_loss=exp_loss.item(),
+            pol_loss=pol_loss.item(),
+            bce_loss=loss.item()
+        )

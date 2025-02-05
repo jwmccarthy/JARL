@@ -35,8 +35,6 @@ class TrainLoop:
         bar = self.logger.progress(steps)
 
         for t in bar:
-            updated = False
-
             # step environment
             with th.no_grad():
                 act = self.policy(obs)
@@ -51,13 +49,8 @@ class TrainLoop:
                 if not graph.ready(t):
                     continue
                 data = self.buffer.serve()
-                info = graph.update(data)
-                updated = True
-
-            # log stats
-            if updated:
                 self.logger.log_data(data)
-                # self.logger.log_info(info)
+                info = graph.update(data)
 
         # do some tidying up here
         self.logger.close()

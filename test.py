@@ -1,3 +1,5 @@
+import pickle
+
 import torch as th
 import torch.nn as nn
 from torch.optim import Adam
@@ -46,6 +48,50 @@ critic = Critic(
     body=MLP(func=nn.Tanh, dims=[64, 64]),
 ).build(env)
 
+ppo = (
+    TrainGraph(
+        BatchSampler(64, num_epoch=10),
+        PPOUpdate(2048, policy, critic, optimizer=Optimizer(Adam, lr=3e-4))
+    )
+    .add_modifier(ComputeAdvantages())
+    .add_modifier(ComputeLogProbs(policy))
+    .add_modifier(ComputeReturns())
+    .add_modifier(ComputeValues(critic))
+    .compile()
+)
+
+buffer = LazyBuffer(2048)
+
+loop = TrainLoop(env, buffer, policy, graphs=[ppo])
+loop.run(int(3e6))
+
+N = 65536
+
+buffer = LazyBuffer(N)
+
+obs = env.reset()
+for t in range(N):
+    act = policy(obs, sample=False)
+    trs = DotDict(obs=obs, act=act)
+    trs, obs = env.step(trs=trs)
+    buffer.store(trs)
+env.env.close()
+
+expert_data = buffer.serve()
+
+# with open("./data/lander.pkl", "wb") as f:
+#     pickle.dump(buffer.serve(), f)
+
+policy = CategoricalPolicy(
+    head=FlattenEncoder(),
+    body=MLP(func=nn.Tanh, dims=[64, 64])
+).build(env)
+
+critic = Critic(
+    head=FlattenEncoder(), 
+    body=MLP(func=nn.Tanh, dims=[64, 64]),
+).build(env)
+
 discrim = Discriminator(
     head=FlattenEncoder(),
     body=MLP(func=nn.Tanh, dims=[64, 64])
@@ -54,16 +100,16 @@ discrim = Discriminator(
 gaifo = (
     TrainGraph(
         BatchSampler(64, num_epoch=10),
-        CrossEntropyUpdate(2048, discrim, optimizer=Optimizer(Adam, lr=3e-4))
+        CrossEntropyUpdate(2048, discrim, optimizer=Optimizer(Adam, lr=3e-4, max_grad_norm=None))
     )
-    .add_modifier(CatExpertObs("./data/lander.pkl"))
+    .add_modifier(CatExpertObs(data=expert_data))
     .compile()
 )
 
 ppo = (
     TrainGraph(
         BatchSampler(64, num_epoch=10),
-        PPOUpdate(2048, policy, critic, optimizer=Optimizer(Adam, lr=3e-4), ent_coef=0.1)
+        PPOUpdate(2048, policy, critic, optimizer=Optimizer(Adam, lr=3e-4), ent_coef=0)
     )
     .add_modifier(DiscriminatorReward(discrim))
     .add_modifier(ComputeAdvantages())
@@ -78,23 +124,15 @@ buffer = LazyBuffer(2048)
 loop = TrainLoop(env, buffer, policy, graphs=[gaifo, ppo])
 loop.run(int(3e6))
 
-# save expert obs
-import pickle
 
 env = gym.make('LunarLander-v2', render_mode="human")
 env = TorchGymEnv(env)
 
 N = 16384
 
-buffer = LazyBuffer(N)
-
 obs = env.reset()
 for t in range(N):
     act = policy(obs, sample=False)
     trs = DotDict(obs=obs, act=act)
     trs, obs = env.step(trs=trs)
-    buffer.store(trs)
 env.env.close()
-
-# with open("./data/lander.pkl", "wb") as f:
-#     pickle.dump(buffer.serve(), f)
