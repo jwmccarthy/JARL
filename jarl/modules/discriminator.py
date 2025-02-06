@@ -1,7 +1,7 @@
 import torch as th
 import torch.nn as nn
 
-from typing import Self
+from typing import Self, Tuple
 
 from jarl.envs.gym import TorchGymEnv
 from jarl.modules.encoder import Encoder
@@ -13,15 +13,13 @@ class Discriminator(CompositeNet):
     def __init__(
         self,
         head: Encoder,
-        body: nn.Module
+        body: nn.Module,
+        foot: nn.Module = None
     ) -> None:
-        super().__init__(head, body)
+        super().__init__(head, body, foot)
 
     def build(self, env: TorchGymEnv) -> Self:
-        self.head = self.head.build(env.obs_space)
-        self.body.build(self.head.feats * 2, 1)
-        self.body.model.append(nn.Sigmoid())
-        return self
-
-    def forward(self, obs_pair: th.Tensor) -> th.Tensor:
-        return self.body(obs_pair).squeeze()
+        return super().build(env)
+    
+    def forward(self, x: Tuple[th.Tensor]) -> th.Tensor:
+        return self.model(x).squeeze()

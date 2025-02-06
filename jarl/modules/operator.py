@@ -15,9 +15,10 @@ class Critic(CompositeNet):
     def __init__(
         self, 
         head: Encoder, 
-        body: nn.Module
+        body: nn.Module,
+        foot: nn.Module = None
     ) -> None:
-        super().__init__(head, body)
+        super().__init__(head, body, foot)
 
     def build(self, env: TorchGymEnv) -> Self:
         return super().build(env)

@@ -51,6 +51,7 @@ class TrainLoop:
                 data = self.buffer.serve()
                 self.logger.log_data(data)
                 info = graph.update(data)
+                self.logger.log_info(info)
 
         # do some tidying up here
         self.logger.close()

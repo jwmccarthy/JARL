@@ -57,7 +57,7 @@ class ProgressBar:
         for key, val in stats.items():
             key, val = key[:KEYLEN-2], f"{val:.3f}"
             pad = " " * (self.width - len(val) - KEYLEN - 1)
-            row += f"│•{key:>{KEYLEN-2}} │ {val}{pad}│\n"
+            row += f"│• {key:<{KEYLEN-3}} │ {pad}{val}│\n"
 
         return row
     
@@ -77,7 +77,7 @@ class ProgressBar:
     
     def _render_bar(self, progress: float) -> str:
         # clear existing lines
-        for _ in range(self.lines + BUFFER):
+        for _ in range(self.lines + BUFFER * 2):
             print('\033[F\033[K', end='')
 
         # print new lines

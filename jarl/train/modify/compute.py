@@ -68,8 +68,10 @@ class ComputeAdvantages(DataModifier):
         don, trc = data.don, data.trc
         data.set(adv=th.zeros_like(data.rew))
 
+        # bootstrap reward on non-terminal end states
+        data.rew[trc] += self.gamma * data.next_val[trc]
+
         # compute TD errors
-        data.rew[trc & ~don] += data.next_val[trc & ~don]
         deltas = data.rew + self.gamma * data.next_val * ~don - data.val
         discnt = self.gamma * self.lmbda * ~don
 
@@ -109,6 +111,6 @@ class DiscriminatorReward(DataModifier):
         return {"rew"}
     
     def __call__(self, data: MultiTensor) -> MultiTensor:
-        obs_pair = th.cat([data.obs, data.next_obs], -1)
-        data.set(rew=-th.log(self.disc(obs_pair) + 1e-8))
+        prob = self.disc((data.obs, data.next_obs))
+        data.rew = -th.log(prob + 1e-8)
         return data

@@ -18,18 +18,15 @@ class MLP(nn.Module):
         self.func = func  # activation function
 
     def build(self, in_dim: int, out_dim: int) -> Self:
-        modules = []
+        self.model = nn.Sequential()
 
         # dims define hidden layers
         for next_dim in self.dims:
-            modules.extend([nn.Linear(in_dim, next_dim), self.func()])
+            self.model.extend([nn.Linear(in_dim, next_dim), self.func()])
             in_dim = next_dim
 
         # output linear layer
-        modules.append(nn.Linear(in_dim, out_dim))
-
-        # wrap modules in sequential
-        self.model =  nn.Sequential(*modules)
+        self.model.append(nn.Linear(in_dim, out_dim))
 
         return self
 

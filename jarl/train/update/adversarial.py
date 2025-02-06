@@ -1,5 +1,6 @@
 import torch as th
 import torch.nn as nn
+from torch.nn.functional import binary_cross_entropy
 
 from typing import Set
 
@@ -9,10 +10,8 @@ from jarl.train.optim import Optimizer
 from jarl.train.update.base import GradientUpdate
 
 
-class CrossEntropyUpdate(GradientUpdate):
+class GAIFOUpdate(GradientUpdate):
     
-    loss_func = nn.BCELoss()
-
     def __init__(
         self, 
         freq: int, 
@@ -24,21 +23,21 @@ class CrossEntropyUpdate(GradientUpdate):
 
     @property
     def requires_keys(self) -> Set[str]:
-        return {"pol_obs", "exp_obs"}
+        return {"obs", "next_obs", "exp_obs", "exp_next"}
 
     def loss(self, data: MultiTensor) -> LossInfo:
         # current policy loss
-        pol_prob = self.model(data.pol_obs)
-        pol_loss = self.loss_func(pol_prob, th.ones_like(pol_prob))
+        pol_prob = self.model((data.obs, data.next_obs))
+        pol_loss = binary_cross_entropy(pol_prob, th.ones_like(pol_prob))
 
         # expert data loss
-        exp_prob = self.model(data.exp_obs)
-        exp_loss = self.loss_func(exp_prob, th.zeros_like(exp_prob))
+        exp_prob = self.model((data.exp_obs, data.exp_next))
+        exp_loss = binary_cross_entropy(exp_prob, th.zeros_like(exp_prob))
 
-        loss = pol_loss + exp_loss
+        bce_loss = pol_loss + exp_loss
 
-        return loss, dict(
+        return bce_loss, dict(
             exp_loss=exp_loss.item(),
             pol_loss=pol_loss.item(),
-            bce_loss=loss.item()
+            bce_loss=bce_loss.item()
         )

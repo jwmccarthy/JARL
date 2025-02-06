@@ -25,8 +25,9 @@ class Policy(CompositeNet, ABC):
         self, 
         head: Encoder, 
         body: nn.Module,
+        foot: nn.Module = None
     ) -> None:
-        super().__init__(head, body)
+        super().__init__(head, body, foot)
 
     def build(self, env: TorchGymEnv) -> Self:
         return super().build(env, env.act_space.flat_dim)
@@ -59,9 +60,10 @@ class CategoricalPolicy(Policy):
     def __init__(
         self, 
         head: nn.Module, 
-        body: nn.Module
+        body: nn.Module,
+        foot: nn.Module = None
     ) -> None:
-        super().__init__(head, body)
+        super().__init__(head, body, foot)
 
     def dist(self, obs: th.Tensor) -> Distribution:
         return Categorical(logits=self.model(obs))
@@ -78,9 +80,10 @@ class DiagonalGaussianPolicy(Policy):
     def __init__(
         self, 
         head: nn.Module, 
-        body: nn.Module
+        body: nn.Module,
+        foot: nn.Module = None
     ) -> None:
-        super().__init__(head, body)
+        super().__init__(head, body, foot)
 
     def build(self, env: TorchGymEnv) -> Self:
         super().build(env)
