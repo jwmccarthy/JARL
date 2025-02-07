@@ -49,9 +49,9 @@ class TorchGymEnv:
         trs.don = th.as_tensor(trm | trs.trc)
 
         # next observation to tensor
-        trs.next_obs = self.obs_space(obs)
+        trs.nxt = self.obs_space(obs)
 
         # automatically reset
-        obs = self.reset() if trs.don else trs.next_obs
+        obs = self.reset() if trs.don else trs.nxt
 
         return trs, obs

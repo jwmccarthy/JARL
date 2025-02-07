@@ -4,7 +4,7 @@ import torch as th
 from typing import Dict, Any
 from collections import deque
 
-from jarl.data.multi import MultiTensor
+from jarl.data.core import MultiTensor
 from jarl.log.utils import get_episodes
 from jarl.log.progress import ProgressBar
 

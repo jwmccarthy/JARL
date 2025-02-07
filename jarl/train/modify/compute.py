@@ -2,7 +2,7 @@ import torch as th
 
 from typing import Set
 
-from jarl.data.multi import MultiTensor
+from jarl.data.core import MultiTensor
 from jarl.modules.policy import Policy
 from jarl.modules.operator import Critic
 from jarl.modules.discriminator import Discriminator
@@ -23,8 +23,8 @@ class ComputeValues(DataModifier):
         return {"val", "next_val"}
 
     def __call__(self, data: MultiTensor) -> MultiTensor:
-        data.set(val=self.critic(data.obs))
-        data.set(next_val=self.critic(data.next_obs))
+        data.val = self.critic(data.obs)
+        data.next_val = self.critic(data.nxt)
         return data
     
 
@@ -42,7 +42,7 @@ class ComputeLogProbs(DataModifier):
         return {"lgp"}
 
     def __call__(self, data: MultiTensor) -> MultiTensor:
-        data.set(lgp=self.policy.logprob(data.obs, data.act))
+        data.lgp = self.policy.logprob(data.obs, data.act)
         return data
     
 
@@ -66,7 +66,7 @@ class ComputeAdvantages(DataModifier):
 
     def __call__(self, data: MultiTensor) -> MultiTensor:
         don, trc = data.don, data.trc
-        data.set(adv=th.zeros_like(data.rew))
+        data.adv = th.zeros_like(data.rew)
 
         # bootstrap reward on non-terminal end states
         data.rew[trc] += self.gamma * data.next_val[trc]
@@ -93,7 +93,7 @@ class ComputeReturns(DataModifier):
         return {"ret"}
 
     def __call__(self, data: MultiTensor) -> MultiTensor:
-        data.set(ret=data.val + data.adv)
+        data.ret = data.val + data.adv
         return data
     
 
@@ -104,13 +104,13 @@ class DiscriminatorReward(DataModifier):
 
     @property
     def requires_keys(self) -> Set[str]:
-        return {"obs", "next_obs"}
+        return {"obs", "nxt"}
     
     @property
     def produces_keys(self) -> Set[str]:
         return {"rew"}
     
     def __call__(self, data: MultiTensor) -> MultiTensor:
-        prob = self.disc((data.obs, data.next_obs))
+        prob = self.disc((data.obs, data.nxt))
         data.rew = -th.log(prob + 1e-8)
         return data

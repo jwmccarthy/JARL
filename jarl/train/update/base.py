@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Set, List
 
 from jarl.data.types import LossInfo
-from jarl.data.multi import MultiTensor
+from jarl.data.core import MultiTensor
 from jarl.train.optim import Optimizer
 
 

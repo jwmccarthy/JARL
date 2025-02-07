@@ -3,7 +3,7 @@ import torch as th
 from collections import defaultdict
 from typing import Any, Self, Dict, List
 
-from jarl.data.multi import MultiTensor
+from jarl.data.core import MultiTensor
 from jarl.train.sample.base import BatchSampler
 from jarl.train.update.base import ModuleUpdate
 from jarl.train.modify.base import DataModifier
@@ -16,7 +16,7 @@ from jarl.train.utils import (
 
 
 # we can assume these keys will come from the buffer
-ROOT = {"obs", "act", "rew", "don", "next_obs", "trc"}
+ROOT = {"obs", "act", "rew", "don", "nxt", "trc"}
 
 
 class TrainGraph:
@@ -103,7 +103,7 @@ class TrainGraph:
     def update(self, data: MultiTensor) -> Dict[str, Any]:
         with th.no_grad(): 
             data = self.active_dep(data)
-
+            
         for batch in self.sampler.sample(data):
             batch_info = {}
             for update in self.update_queue:

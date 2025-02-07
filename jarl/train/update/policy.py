@@ -5,7 +5,7 @@ from typing import Set
 
 from jarl.data.types import LossInfo
 from jarl.modules.policy import Policy
-from jarl.data.multi import MultiTensor
+from jarl.data.core import MultiTensor
 from jarl.train.optim import Optimizer
 from jarl.train.update.base import GradientUpdate
 

@@ -1,17 +1,17 @@
 import torch as th
 from torch import Tensor
 
-from typing import Self
+from typing import Self, Dict
 from abc import ABC, abstractmethod
 
-from jarl.data.multi import MultiTensor
-from jarl.data.types import Device, NestedTensorDict
+from jarl.data.types import Device
+from jarl.data.core import MultiTensor
 
 
 class Buffer(ABC):
 
     @abstractmethod
-    def store(self, data: NestedTensorDict) -> None:
+    def store(self, data: Dict[str, th.Tensor]) -> None:
         ...
 
     @abstractmethod
@@ -22,66 +22,59 @@ class Buffer(ABC):
 class LazyBuffer(Buffer):
     """Replay buffer for storing transitions"""
 
-    def __init__(
-        self, 
-        size: int,
-        device: Device = "cpu"
-    ) -> None:
+    _data: MultiTensor
+
+    def __init__(self, size: int) -> None:
         super().__init__()
         self._idx = 0
-        self.size = size
-        self.full = False
-        self.data = None
-        self.device = device
+        self._size = size   # max buffer size before circling
+        self._init = False  # lazy initialization flag
+        self._full = False  # full buffer flag
+    
+    @property
+    def size(self) -> int:
+        return self._size
 
-    def _nested_init(
-        self, 
-        data: Tensor | NestedTensorDict
-    ) -> Tensor | MultiTensor:
-        # initialize tensors w/ shape & dtype
-        if isinstance(data, Tensor):
-            dtype = data.dtype
-            shape = (self.size, *data.shape)
-            return th.empty(shape, dtype=dtype, device=self.device)
-        
-        # recursively initialize nested tensors
-        tensors = {k: self._nested_init(v) for k, v in data.items()}
-        return MultiTensor(tensors, self.device)
+    @property
+    def init(self) -> bool:
+        return self._init
 
-    def _lazy_init(self, data: NestedTensorDict) -> None:
-        self.data = self._nested_init(data)
+    @property
+    def full(self) -> bool:
+        return self._full
+    
+    @property
+    def device(self) -> Device:
+        return self._data.device if self.init else None
+
+    def _lazy_init(self, batch: Dict[str, th.Tensor]) -> None:
+        data, self._init = {}, True
+        for key, val in batch.items():
+            shape = (self.size, *val.shape)
+            data[key] = th.empty(shape, dtype=val.dtype)
+        self._data = MultiTensor(**data)
 
     def __len__(self) -> int:
         return self.size if self.full else self._idx
     
     def to(self, device: Device) -> Self:
-        self.device = device
-        if self.data is not None:
-            self.data.to(device)
+        self._data = self._data.to(device)
         return self
-    
-    def reset(self) -> None:
-        self._idx = 0
-        self.full = False
 
-    def clear(self) -> None:
-        self.reset()
-        self.data = None
-
-    def store(self, data: NestedTensorDict) -> None:
+    def store(self, data: Dict[str, th.Tensor]) -> None:
         # lazy-initialize tensor storage
-        if self._idx == 0 and not self.full:
+        if not self.init:
             self._lazy_init(data)
 
         # store data circularly
-        self.data[self._idx] = data
+        self._data[self._idx] = data
         self._idx = (self._idx + 1) % self.size
 
         # full circular pass
         if self._idx == 0:
-            self.full = True
+            self._full = True
 
     def serve(self) -> MultiTensor:
         if self.full:
-            return self.data[:]  # slice idx prevents overwriting
-        return self.data[:self._idx]
+            return self._data[:]
+        return self._data[:self._idx]

@@ -5,7 +5,7 @@ from typing import Self
 
 from jarl.envs.gym import TorchGymEnv
 from jarl.modules.encoder import Encoder
-from jarl.modules.composite import CompositeNet
+from jarl.modules.base import CompositeNet
 
 
 class Critic(CompositeNet):
@@ -22,6 +22,6 @@ class Critic(CompositeNet):
 
     def build(self, env: TorchGymEnv) -> Self:
         return super().build(env)
-
-    def forward(self, obs: th.Tensor) -> th.Tensor:
-        return super().forward(obs).squeeze()
+    
+    def forward(self, x: th.Tensor) -> th.Tensor:
+        return super().forward(x).squeeze()

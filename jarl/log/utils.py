@@ -2,7 +2,7 @@ import torch as th
 
 from typing import List
 
-from jarl.data.multi import MultiTensor
+from jarl.data.core import MultiTensor
 
 
 def get_episodes(data: MultiTensor) -> List[MultiTensor]:

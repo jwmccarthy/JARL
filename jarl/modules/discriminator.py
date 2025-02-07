@@ -5,7 +5,7 @@ from typing import Self, Tuple
 
 from jarl.envs.gym import TorchGymEnv
 from jarl.modules.encoder import Encoder
-from jarl.modules.composite import CompositeNet
+from jarl.modules.base import CompositeNet
 
 
 class Discriminator(CompositeNet):
@@ -21,5 +21,5 @@ class Discriminator(CompositeNet):
     def build(self, env: TorchGymEnv) -> Self:
         return super().build(env)
     
-    def forward(self, x: Tuple[th.Tensor]) -> th.Tensor:
-        return self.model(x).squeeze()
+    def forward(self, x: th.Tensor | Tuple[th.Tensor]) -> th.Tensor:
+        return super().forward(x).squeeze()

@@ -8,7 +8,9 @@ class DotDict(dict):
         super().__init__(*args, **kwargs)
 
     def __getattr__(self, key: Any) -> Any:
-        return self[key]
+        if key in self:
+            return self[key]
+        return super().__getattribute__(key)
     
     def __setattr__(self, key: Any, value: Any) -> None:
         self[key] = value

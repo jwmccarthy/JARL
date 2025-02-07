@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from jarl.data.types import Device
 from jarl.envs.gym import TorchGymEnv
 from jarl.modules.encoder import Encoder
-from jarl.modules.composite import CompositeNet
+from jarl.modules.base import CompositeNet
 
 
 class Policy(CompositeNet, ABC):
@@ -33,7 +33,6 @@ class Policy(CompositeNet, ABC):
         return super().build(env, env.act_space.flat_dim)
 
     @abstractmethod
-    @lru_cache(maxsize=1)
     def dist(self, obs: th.Tensor) -> Distribution:
         ...
 
@@ -65,6 +64,7 @@ class CategoricalPolicy(Policy):
     ) -> None:
         super().__init__(head, body, foot)
 
+    @lru_cache(maxsize=1)
     def dist(self, obs: th.Tensor) -> Distribution:
         return Categorical(logits=self.model(obs))
     
@@ -89,7 +89,8 @@ class DiagonalGaussianPolicy(Policy):
         super().build(env)
         self.covmat = th.eye(env.act_space.flat_dim)
         return self
-
+    
+    @lru_cache(maxsize=1)
     def dist(self, obs: th.Tensor) -> Distribution:
         return MultivariateNormal(self.model(obs), self.covmat)
     
