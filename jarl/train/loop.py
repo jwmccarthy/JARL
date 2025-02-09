@@ -10,6 +10,10 @@ from jarl.train.graph import TrainGraph
 from jarl.log.logger import Logger
 
 
+class TrainContext:
+    ...
+
+
 class TrainLoop:
 
     def __init__(

@@ -5,7 +5,6 @@ from typing import Set
 from jarl.data.core import MultiTensor
 from jarl.modules.policy import Policy
 from jarl.modules.operator import Critic
-from jarl.modules.discriminator import Discriminator
 from jarl.train.modify.base import DataModifier
 
 
@@ -94,23 +93,4 @@ class ComputeReturns(DataModifier):
 
     def __call__(self, data: MultiTensor) -> MultiTensor:
         data.ret = data.val + data.adv
-        return data
-    
-
-class DiscriminatorReward(DataModifier):
-
-    def __init__(self, discriminator: Discriminator) -> None:
-        self.disc = discriminator
-
-    @property
-    def requires_keys(self) -> Set[str]:
-        return {"obs", "nxt"}
-    
-    @property
-    def produces_keys(self) -> Set[str]:
-        return {"rew"}
-    
-    def __call__(self, data: MultiTensor) -> MultiTensor:
-        prob = self.disc((data.obs, data.nxt))
-        data.rew = -th.log(prob + 1e-8)
         return data

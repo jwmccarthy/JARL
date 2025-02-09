@@ -103,7 +103,7 @@ class TrainGraph:
     def update(self, data: MultiTensor) -> Dict[str, Any]:
         with th.no_grad(): 
             data = self.active_dep(data)
-            
+
         for batch in self.sampler.sample(data):
             batch_info = {}
             for update in self.update_queue:

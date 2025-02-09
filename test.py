@@ -1,138 +1,18 @@
-import pickle
+import time
+import torch as th
 
-import torch.nn as nn
-from torch.optim import Adam
-
-import gymnasium as gym
-
-from jarl.envs.gym import TorchGymEnv
-
-from jarl.data.dict import DotDict
-from jarl.data.buffer import LazyBuffer
-
-from jarl.modules.core import MLP
-from jarl.modules.operator import Critic
-from jarl.modules.encoder import FlattenEncoder, StackObsEncoder
-from jarl.modules.policy import CategoricalPolicy
-from jarl.modules.discriminator import Discriminator
-
-from jarl.train.optim import Optimizer
-from jarl.train.update.ppo import PPOUpdate
-from jarl.train.update.expert import GAIFOUpdate
-from jarl.train.sample.base import BatchSampler
-
-from jarl.train.loop import TrainLoop
-from jarl.train.graph import TrainGraph
-
-from jarl.train.modify.expert import GAIFODemos
-from jarl.train.modify.compute import (
-    ComputeValues,
-    ComputeLogProbs,
-    ComputeAdvantages,
-    ComputeReturns,
-    DiscriminatorReward
-)
+from jarl.log.log import Progress
 
 
-env = gym.make('LunarLander-v2')
-env = TorchGymEnv(env)
-
-policy = CategoricalPolicy(
-    head=FlattenEncoder(),
-    body=MLP(func=nn.Tanh, dims=[64, 64])
-).build(env)
-
-critic = Critic(
-    head=FlattenEncoder(), 
-    body=MLP(func=nn.Tanh, dims=[64, 64]),
-).build(env)
-
-ppo = (
-    TrainGraph(
-        BatchSampler(64, num_epoch=10),
-        PPOUpdate(2048, policy, critic, optimizer=Optimizer(Adam, lr=3e-4))
-    )
-    .add_modifier(ComputeAdvantages())
-    .add_modifier(ComputeLogProbs(policy))
-    .add_modifier(ComputeReturns())
-    .add_modifier(ComputeValues(critic))
-    .compile()
-)
-
-buffer = LazyBuffer(2048)
-
-loop = TrainLoop(env, buffer, policy, graphs=[ppo])
-loop.run(int(3e6))
-
-
-N = 65536
-
-buffer = LazyBuffer(N)
-
-obs = env.reset()
-for t in range(N):
-    act = policy(obs, sample=True)
-    trs = DotDict(obs=obs, act=act)
-    trs, obs = env.step(trs=trs)
-    buffer.store(trs)
-env.env.close()
-
-with open("./data/lander.pkl", "wb") as f:
-    pickle.dump(buffer.serve(), f)
-
-
-policy = CategoricalPolicy(
-    head=FlattenEncoder(),
-    body=MLP(func=nn.Tanh, dims=[64, 64])
-).build(env)
-
-critic = Critic(
-    head=FlattenEncoder(), 
-    body=MLP(func=nn.Tanh, dims=[64, 64]),
-).build(env)
-
-discrim = Discriminator(
-    head=StackObsEncoder(),
-    body=MLP(func=nn.Tanh, dims=[64, 64]),
-    foot=nn.Sigmoid()
-).build(env)
-
-gaifo = (
-    TrainGraph(
-        BatchSampler(64, num_epoch=10),
-        GAIFOUpdate(2048, discrim, optimizer=Optimizer(Adam, lr=3e-4, max_grad_norm=None))
-    )
-    .add_modifier(GAIFODemos("./data/lander.pkl"))
-    .compile()
-)
-
-ppo = (
-    TrainGraph(
-        BatchSampler(64, num_epoch=10),
-        PPOUpdate(2048, policy, critic, optimizer=Optimizer(Adam, lr=3e-4), ent_coef=0)
-    )
-    .add_modifier(DiscriminatorReward(discrim))
-    .add_modifier(ComputeAdvantages())
-    .add_modifier(ComputeLogProbs(policy))
-    .add_modifier(ComputeReturns())
-    .add_modifier(ComputeValues(critic))
-    .compile()
-)
-
-buffer = LazyBuffer(2048)
-
-loop = TrainLoop(env, buffer, policy, graphs=[gaifo, ppo])
-loop.run(int(1e6))
-
-
-env = gym.make('LunarLander-v2', render_mode="human")
-env = TorchGymEnv(env)
-
-N = 16384
-
-obs = env.reset()
-for t in range(N):
-    act = policy(obs, sample=False)
-    trs = DotDict(obs=obs, act=act)
-    trs, obs = env.step(trs=trs)
-env.env.close()
+if __name__ == "__main__":
+    bar = Progress(530, width=30)
+    for _ in bar:
+        bar.update(episode=dict(
+            mean_rew=th.rand(1),
+            mean_len=th.rand(1)
+        ))
+        bar.update(updates=dict(
+            bce_loss=th.rand(1),
+            pol_loss=th.rand(1)
+        ))
+        time.sleep(0.1)

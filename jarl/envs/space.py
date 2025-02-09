@@ -45,6 +45,11 @@ class TensorSpace(TensorSpec, ABC):
     def flat_dim(self) -> int:
         ...
 
+    @property
+    @abstractmethod
+    def numel(self) -> int:
+        ...
+
 
 @dataclass
 class BoxSpace(TensorSpace):
@@ -70,6 +75,10 @@ class BoxSpace(TensorSpace):
     def flat_dim(self) -> int:
         return np.prod(self.shape)
     
+    @property
+    def numel(self) -> int:
+        return self.shape[0]
+    
 
 @dataclass
 class DiscreteSpace(TensorSpace):
@@ -84,6 +93,10 @@ class DiscreteSpace(TensorSpace):
     @property
     def flat_dim(self) -> int:
         return self.n
+    
+    @property
+    def numel(self) -> int:
+        return 1
     
 
 @dataclass
@@ -104,6 +117,10 @@ class MultiDiscreteSpace(TensorSpace):
     def flat_dim(self) -> int:
         return np.sum(self.nvec)
     
+    @property
+    def numel(self) -> int:
+        return len(self.nvec)
+    
 
 @dataclass
 class MultiBinarySpace(TensorSpace):
@@ -122,6 +139,10 @@ class MultiBinarySpace(TensorSpace):
     @property
     def flat_dim(self) -> int:
         return np.prod(self._n)
+    
+    @property
+    def numel(self) -> int:
+        return len(self._n)
     
 
 def torch_space(space: Space, device: Device = "cpu") -> TensorSpace:

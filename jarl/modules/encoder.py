@@ -5,7 +5,7 @@ from torch import Tensor
 from typing import Self, Tuple
 from abc import ABC, abstractmethod
 
-from jarl.envs.space import TensorSpace
+from jarl.envs.gym import TorchGymEnv
 
 
 class Encoder(nn.Module, ABC):
@@ -16,25 +16,15 @@ class Encoder(nn.Module, ABC):
         super().__init__()
 
     @abstractmethod
-    def build(self, space: TensorSpace) -> Self:
+    def build(self, env: TorchGymEnv) -> Self:
         ...
         
 
 class FlattenEncoder(Encoder):
     
-    def build(self, space: TensorSpace) -> Self:
-        self.feats = space.flat_dim
+    def build(self, env: TorchGymEnv) -> Self:
+        self.feats = env.obs_space.flat_dim
         return self
     
     def forward(self, x: th.Tensor) -> th.Tensor:
-        return th.flatten(x, start_dim=-1)
-    
-
-class StackObsEncoder(Encoder):
-
-    def build(self, space: TensorSpace) -> Self:
-        self.feats = space.flat_dim * 2
-        return self
-
-    def forward(self, x: Tuple[th.Tensor]) -> th.Tensor:
-        return th.cat(x, dim=-1)
+        return th.flatten(x, -1)
