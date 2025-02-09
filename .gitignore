@@ -1,6 +1,5 @@
 # project specific
-./*.py
-./data/*
+data/*
 
 */.DS_store
 
