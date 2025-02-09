@@ -16,7 +16,7 @@ data = MultiTensor(dict(
     b=th.rand((5,)),
 ))
 
-all(data[:3].a == data.a[:3])     # => True
+all(data[:3].a == data.a[:3])  # => True
 ```
 
 This is useful for the construction of easy-to-manipulate replay buffers and the passing of complex information between modules.
