@@ -6,7 +6,7 @@ JARL utilizes a few core proprietary objects...
 
 ### ```MultiTensor```
 
-A ```MultiTensor``` is just a nested Python dictionary of PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
+A ```MultiTensor``` is just a Python dictionary of PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
 
 ```python
 import torch as th
@@ -14,13 +14,9 @@ import torch as th
 data = MultiTensor(dict(
     a=th.rand((5,3)),
     b=th.rand((5,)),
-    c=dict(
-        d=th.rand((5, 2, 4))
-    )
 ))
 
 all(data[:3].a == data.a[:3])     # => True
-all(data[:3].c.d == data.c.d[:3]) # => True
 ```
 
 This is useful for the construction of easy-to-manipulate replay buffers and the passing of complex information between modules.
