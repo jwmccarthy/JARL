@@ -4,7 +4,6 @@ from torch import Tensor
 
 from typing import (
     Iterable,
-    Union, 
     Dict, 
     Tuple,
     Any, 
@@ -32,10 +31,6 @@ torch_to_numpy = {
 # composite types
 Index = int | slice | Iterable[int] | Tensor
 Device = str | th.device
-
-# nested dicts
-NestedIterable = Dict[str, Union[Iterable, "NestedIterable"]]
-NestedTensorDict = Dict[str, Union[Tensor, "NestedTensorDict"]]
 
 # computations
 LossInfo = Tuple[th.Tensor, Dict[str, Any]]

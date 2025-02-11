@@ -4,14 +4,11 @@ from typing import Self, List
 
 from jarl.data.dict import DotDict
 from jarl.data.buffer import Buffer
+
 from jarl.envs.gym import TorchGymEnv
 from jarl.modules.policy import Policy
 from jarl.train.graph import TrainGraph
-from jarl.log.logger import Logger
-
-
-class TrainContext:
-    ...
+from jarl.log.log import Progress
 
 
 class TrainLoop:
@@ -21,8 +18,8 @@ class TrainLoop:
         env: TorchGymEnv, 
         buffer: Buffer,
         policy: Policy,
-        logger: Logger = Logger(),
-        graphs: List[TrainGraph] = []
+        graphs: List[TrainGraph],
+        logger: Progress = Progress
     ) -> None:
         self.env = env
         self.buffer = buffer
@@ -30,15 +27,11 @@ class TrainLoop:
         self.logger = logger
         self.graphs = graphs
 
-    def add_graph(self, graph: TrainGraph) -> Self:
-        self.graphs.append(graph)
-        return self
-
     def run(self, steps: int) -> None:
         obs = self.env.reset()
-        bar = self.logger.progress(steps)
+        log = self.logger(steps)
 
-        for t in bar:
+        for t in log:
             # step environment
             with th.no_grad():
                 act = self.policy(obs)
@@ -49,13 +42,9 @@ class TrainLoop:
             self.buffer.store(trs)
 
             # run blocks
-            for graph in self.graphs:
-                if not graph.ready(t):
-                    continue
+            for graph in [g for g in self.graphs if g.ready(t)]:
                 data = self.buffer.serve()
-                self.logger.log_data(data)
                 info = graph.update(data)
-                self.logger.log_info(info)
+                log.update(updates=info)
 
-        # do some tidying up here
-        self.logger.close()
+        return log

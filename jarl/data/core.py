@@ -1,7 +1,7 @@
 import torch as th
 
 from multimethod import multimethod
-from typing import Dict, Self, Any, Mapping
+from typing import Dict, Self, Any, Iterable, Mapping
 
 from jarl.data.dict import DotDict
 from jarl.data.utils import common_shape
@@ -32,6 +32,7 @@ class MultiTensor(dict):
     def __len__(self) -> int:
         return self.shape[0]
     
+    @multimethod
     def __getattr__(self, key: str) -> th.Tensor:
         if key in self:
             return self[key]
@@ -48,6 +49,11 @@ class MultiTensor(dict):
     @multimethod
     def __getitem__(self, idx: str) -> th.Tensor:
         return super().__getitem__(idx)
+    
+    @multimethod
+    def __getitem__(self, keys: Iterable[str]) -> Self:
+        data = {k: self[k] for k in keys}
+        return MultiTensor(**data)
 
     @multimethod
     def __getitem__(self, idx: int) -> Self:
@@ -61,7 +67,7 @@ class MultiTensor(dict):
     
     @multimethod
     def __setitem__(self, idx: str, data: th.Tensor) -> None:
-        # assert data.shape[:len(self.shape)] == self.shape
+        assert data.shape[:len(self.shape)] == self.shape
         super().__setitem__(idx, data)
     
     @multimethod
@@ -74,3 +80,13 @@ class MultiTensor(dict):
         for key, val in self.items():
             self[key] = val.to(device)
         return self
+    
+    def append(self, data: Mapping[str, th.Tensor]) -> Self:
+        assert self.keys() == data.keys(), "Keys must match"
+
+        result = {}
+        for key, val in data.items():
+            assert self[key].shape[1:] == val.shape[1:], (
+                f"Shape mismatch for key '{key}'")
+            result[key] = th.cat([self[key], val], dim=0)
+        return MultiTensor(**result, device=self.device)

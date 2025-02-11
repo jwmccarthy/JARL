@@ -1,10 +1,9 @@
 from colorama import Fore, Style
 from collections import defaultdict
 
-from jarl.log.box import *
+from jarl.log.box import LightArcBox
 
 
-PCTLEN = 11
 BLOCKS = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
 
 
@@ -25,7 +24,10 @@ class Progress:
         self.stats = defaultdict(dict)
 
     def _build_bar(self, prog: float) -> str:
-        width = self.width - PCTLEN
+        # percentage indicator
+        pct_str = f"[{prog * 100:6.2f}%]"
+
+        width = self.width - len(pct_str) - 2
 
         # get full and partials
         fill = prog * width
@@ -41,9 +43,6 @@ class Progress:
             bar_str += BLOCKS[part_idx]
             bar_str += BLOCKS[0] * (width - full - 1)
         bar_str = f"|{Fore.GREEN}{bar_str}{Style.RESET_ALL}|"
-
-        # add percentage
-        pct_str = f"[{prog * 100:6.2f}%]"
         
         return bar_str + pct_str
     
@@ -135,6 +134,10 @@ class Progress:
         for key, val in kwargs.items():
             self.stats[key].update(val)
 
+    def close(self):
+        self.stats = {}
+
+
     def __iter__(self):
         for t in range(self.total):
             tab = self._build_table()
@@ -145,6 +148,10 @@ class Progress:
             for _ in range(self.lines * 2):
                 print("\033[A\033[K", end="")
 
-            print(f"{tab}\n{bar}", flush=True)
+            if self.lines > 2:
+                print(tab)
+            print(bar, flush=True)
 
             yield t
+
+        self.close()

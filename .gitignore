@@ -1,5 +1,6 @@
 # project specific
 /*.py
+/*.ipynb
 /data/*
 
 */.DS_store

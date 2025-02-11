@@ -28,3 +28,23 @@ class FlattenEncoder(Encoder):
     
     def forward(self, x: th.Tensor) -> th.Tensor:
         return th.flatten(x, -1)
+    
+
+class StackObsEncoder(Encoder):
+
+    def build(self, env: TorchGymEnv) -> Self:
+        self.feats = env.obs_space.flat_dim * 2
+        return self
+    
+    def forward(self, x: Tuple[Tensor, ...]) -> th.Tensor:
+        return th.cat(x, -1)
+    
+
+class StackObsActEncoder(Encoder):
+
+    def build(self, env: TorchGymEnv) -> Self:
+        self.feats = env.obs_space.flat_dim + env.act_space.shape[0]
+        return self
+    
+    def forward(self, x: Tuple[Tensor, ...]) -> th.Tensor:
+        return th.cat(x, -1)
