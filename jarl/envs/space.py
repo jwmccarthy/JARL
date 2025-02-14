@@ -145,6 +145,37 @@ class MultiBinarySpace(TensorSpace):
         return len(self._n)
     
 
+@dataclass
+class StackedSpace(TensorSpec):
+
+    space: TensorSpace
+    count: int
+    shape: tuple = field(init=False)
+    dtype: th.dtype = field(init=False)
+    stype: np.dtype = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.shape = (self.count, *self.space.shape)
+        self.stype = self.space.stype
+        self.dtype = self.space.dtype
+
+    def __getattr__(self, key: str) -> Tensor:
+        if key in self.__dict__:
+            super().__getattribute__(key)
+        return self.space.__getattribute__(key)
+
+    def contains(self, x: Tensor) -> bool:
+        return all(self.space.contains(y) for y in x)
+
+    @property
+    def flat_dim(self) -> int:
+        return self.space.flat_dim * self.count
+    
+    @property
+    def numel(self) -> int:
+        return self.space.numel * self.count
+    
+
 def torch_space(space: Space, device: Device = "cpu") -> TensorSpace:
     """Convert gym space to tensor space"""
     if isinstance(space, Box):

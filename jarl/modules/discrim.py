@@ -1,6 +1,8 @@
 import torch as th
 import torch.nn as nn
 
+from typing import Tuple
+
 from jarl.modules.encoder import Encoder
 from jarl.modules.base import CompositeNet
 
@@ -15,5 +17,5 @@ class Discriminator(CompositeNet):
     ) -> None:
         super().__init__(head, body, foot)
 
-    def forward(self, x: th.Tensor) -> th.Tensor:
+    def forward(self, x: Tuple[th.Tensor, ...]) -> th.Tensor:
         return super().forward(x).squeeze()

@@ -1,6 +1,5 @@
 import torch as th
 import torch.nn as nn
-from torch import Tensor
 
 from typing import Self, Tuple
 from abc import ABC, abstractmethod
@@ -36,15 +35,15 @@ class StackObsEncoder(Encoder):
         self.feats = env.obs_space.flat_dim * 2
         return self
     
-    def forward(self, x: Tuple[Tensor, ...]) -> th.Tensor:
+    def forward(self, x: Tuple[th.Tensor, ...]) -> th.Tensor:
         return th.cat(x, -1)
     
 
 class StackObsActEncoder(Encoder):
 
     def build(self, env: TorchGymEnv) -> Self:
-        self.feats = env.obs_space.flat_dim + env.act_space.shape[0]
+        self.feats = env.obs_space.flat_dim + env.act_space.numel
         return self
     
-    def forward(self, x: Tuple[Tensor, ...]) -> th.Tensor:
+    def forward(self, x: Tuple[th.Tensor, ...]) -> th.Tensor:
         return th.cat(x, -1)
