@@ -75,9 +75,8 @@ class TrainGraph:
                     prd_keys |= m.produces_keys
 
             # check all dependencies met
-            missing_deps = req_keys - prd_keys - ROOT
-            if missing_deps:
-                raise ValueError(f"Missing dependencies: {missing_deps}")
+            missing = req_keys - prd_keys - ROOT
+            assert not missing, f"Missing keys {missing}"
 
             # nested functions for each update
             func = compose_funcs(current_deps)
