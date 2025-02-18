@@ -6,16 +6,22 @@ from gymnasium import Env
 from typing import Tuple
 
 from jarl.data.dict import DotDict
+from jarl.data.types import Device
 from jarl.envs.space import torch_space
 
 
 class TorchGymEnv:
     """Gym env w/ torch tensor IO"""
 
-    def __init__(self, env: Env) -> None:
+    def __init__(
+        self, 
+        env: Env,
+        device: Device = "cpu"
+    ) -> None:
         self.env = env
-        self.obs_space = torch_space(env.observation_space)
-        self.act_space = torch_space(env.action_space)
+        self.device = device
+        self.obs_space = torch_space(env.observation_space, device)
+        self.act_space = torch_space(env.action_space, device)
 
     def seed(self, seed: int) -> None:
         self.env.seed(seed)

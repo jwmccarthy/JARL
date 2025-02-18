@@ -34,4 +34,4 @@ Device = str | th.device
 
 # computations
 LossInfo = Tuple[th.Tensor, Dict[str, Any]]
-SampleOutput = Generator[Iterable, None, None]
+SampleOutput = Generator[Iterable, None, None] | Tuple[Iterable, ...]

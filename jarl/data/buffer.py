@@ -24,12 +24,17 @@ class LazyBuffer(Buffer):
 
     _data: MultiTensor
 
-    def __init__(self, size: int) -> None:
+    def __init__(
+        self, 
+        size: int,
+        device: Device = "cpu"
+    ) -> None:
         super().__init__()
         self._idx = 0
-        self._size = size   # max buffer size before circling
-        self._init = False  # lazy initialization flag
-        self._full = False  # full buffer flag
+        self._size = size      # max buffer size before circling
+        self._init = False     # lazy initialization flag
+        self._full = False     # full buffer flag
+        self._device = device  # device to store data
     
     @property
     def size(self) -> int:
@@ -45,7 +50,7 @@ class LazyBuffer(Buffer):
     
     @property
     def device(self) -> Device:
-        return self._data.device if self.init else None
+        return self._device
 
     def _lazy_init(self, batch: Dict[str, th.Tensor]) -> None:
         data, self._init = {}, True
@@ -58,7 +63,9 @@ class LazyBuffer(Buffer):
         return self.size if self.full else self._idx
     
     def to(self, device: Device) -> Self:
-        self._data = self._data.to(device)
+        self._device = device
+        if self.init:
+            self._data.to(device)
         return self
 
     def store(self, data: Dict[str, th.Tensor]) -> None:

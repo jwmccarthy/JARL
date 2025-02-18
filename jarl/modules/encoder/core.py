@@ -5,19 +5,8 @@ from typing import Self, Tuple
 from abc import ABC, abstractmethod
 
 from jarl.envs.gym import TorchGymEnv
+from jarl.modules.encoder.base import Encoder
 
-
-class Encoder(nn.Module, ABC):
-
-    feats: int
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    @abstractmethod
-    def build(self, env: TorchGymEnv) -> Self:
-        ...
-        
 
 class FlattenEncoder(Encoder):
     

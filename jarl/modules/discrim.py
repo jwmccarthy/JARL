@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from typing import Tuple
 
-from jarl.modules.encoder import Encoder
+from jarl.modules.encoder.core import Encoder
 from jarl.modules.base import CompositeNet
 
 

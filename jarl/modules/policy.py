@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 
 from jarl.data.types import Device
 from jarl.envs.gym import TorchGymEnv
-from jarl.modules.encoder import Encoder
+from jarl.modules.encoder.core import Encoder
 from jarl.modules.base import CompositeNet
 
 
