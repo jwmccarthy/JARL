@@ -57,7 +57,7 @@ class LazyBuffer(Buffer):
         for key, val in batch.items():
             shape = (self.size, *val.shape)
             data[key] = th.empty(shape, dtype=val.dtype)
-        self._data = MultiTensor(**data)
+        self._data = MultiTensor(**data, device=self.device)
 
     def __len__(self) -> int:
         return self.size if self.full else self._idx

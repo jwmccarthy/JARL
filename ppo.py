@@ -15,7 +15,7 @@ from jarl.data.buffer import LazyBuffer
 from jarl.modules.core import MLP, CNN
 from jarl.modules.operator import Critic
 from jarl.modules.encoder.image import ImageEncoder
-from jarl.modules.policy import CategoricalPolicy
+from jarl.modules.policy import CategoricalPolicy, DiagonalGaussianPolicy
 
 from jarl.train.optim import Optimizer
 from jarl.train.update.ppo import PPOUpdate
@@ -32,8 +32,8 @@ from jarl.train.modify.compute import (
 )
 
 
-env = gym.make('ALE/Pacman-v5')
-env = TorchGymEnv(env)
+env = gym.make('CarRacing-v2')
+env = TorchGymEnv(env, "cuda")
 
 transform = v2.Compose([
     v2.Resize((64, 64)),
@@ -41,15 +41,15 @@ transform = v2.Compose([
     v2.ToDtype(th.float32, scale=True)
 ])
 
-policy = CategoricalPolicy(
+policy = DiagonalGaussianPolicy(
     head=ImageEncoder(CNN(), transform=transform),
     body=MLP(func=nn.Tanh, dims=[64, 64])
-).build(env)
+).build(env).to("cuda")
 
 critic = Critic(
     head=ImageEncoder(CNN(), transform=transform), 
     body=MLP(func=nn.Tanh, dims=[64, 64]),
-).build(env)
+).build(env).to("cuda")
 
 ppo = (
     TrainGraph(
@@ -63,13 +63,13 @@ ppo = (
     .compile()
 )
 
-buffer = LazyBuffer(2048)
+buffer = LazyBuffer(2048).to("cuda")
 
 loop = TrainLoop(env, buffer, policy, graphs=[ppo])
 loop.run(int(1e6))
 
 
-env = gym.make('ALE/Asteroids-v5', render_mode="human")
+env = gym.make('CarRacing-v2', render_mode="human")
 env = TorchGymEnv(env)
 
 N = 16384
