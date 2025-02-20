@@ -26,7 +26,6 @@ class TorchGymEnv:
     def seed(self, seed: int) -> None:
         self.env.seed(seed)
 
-    # TODO: do I actually need info from reset?
     def reset(self) -> Tensor:
         obs, _ = self.env.reset()
         return self.obs_space(obs)
@@ -38,15 +37,9 @@ class TorchGymEnv:
     
     def step(
         self, 
-        act: Tensor = None, 
-        trs: DotDict = None, 
+        trs: DotDict, 
         stop: bool = False
     ) -> Tuple[DotDict[str, Tensor], Tensor]:     
-        assert (act is None) != (trs is None)
-
-        # init transition if needed
-        trs = trs or DotDict(act=act)
-
         obs, rew, trm, trc = self._step(trs.act)
 
         # non-space vals to tensors
