@@ -10,6 +10,8 @@ from typing import (
     Generator
 )
 
+from jarl.data.dict import DotDict
+
 
 numpy_to_torch = {
     np.uint8      : th.uint8,
@@ -35,3 +37,4 @@ Device = str | th.device
 # computations
 LossInfo = Tuple[th.Tensor, Dict[str, Any]]
 SampleOutput = Generator[Iterable, None, None] | Tuple[Iterable, ...]
+GymStepOutput = Tuple[DotDict[str, th.Tensor], th.Tensor]

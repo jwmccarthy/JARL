@@ -137,7 +137,6 @@ class Progress:
     def close(self):
         self.stats = {}
 
-
     def __iter__(self):
         for t in range(self.total):
             tab = self._build_table()

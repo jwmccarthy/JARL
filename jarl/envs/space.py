@@ -155,7 +155,8 @@ class StackedSpace(TensorSpec):
     stype: np.dtype = field(init=False)
 
     def __post_init__(self) -> None:
-        self.shape = (self.count, *self.space.shape)
+        self.shape = (self.count * self.space.shape[0],) \
+                   + (*self.space.shape[1:],)
         self.stype = self.space.stype
         self.dtype = self.space.dtype
 
@@ -166,6 +167,9 @@ class StackedSpace(TensorSpec):
 
     def contains(self, x: Tensor) -> bool:
         return all(self.space.contains(y) for y in x)
+    
+    def sample(self) -> Tensor:
+        return th.cat([self.space.sample() for _ in range(self.count)])
 
     @property
     def flat_dim(self) -> int:

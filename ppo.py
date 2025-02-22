@@ -8,14 +8,15 @@ from torchvision.transforms import v2
 import gymnasium as gym
 
 from jarl.envs.gym import TorchGymEnv
+from jarl.envs.wrap import ObsStackWrapper
 
 from jarl.data.dict import DotDict
 from jarl.data.buffer import LazyBuffer
 
 from jarl.modules.core import MLP, CNN
 from jarl.modules.operator import Critic
-from jarl.modules.encoder.image import ImageEncoder
-from jarl.modules.policy import CategoricalPolicy, DiagonalGaussianPolicy
+from jarl.modules.encoder.core import FlattenEncoder
+from jarl.modules.policy import CategoricalPolicy
 
 from jarl.train.optim import Optimizer
 from jarl.train.update.ppo import PPOUpdate
@@ -32,24 +33,19 @@ from jarl.train.modify.compute import (
 )
 
 
-env = gym.make('CarRacing-v2')
-env = TorchGymEnv(env, "cuda")
+env = gym.make('LunarLander-v2')
+env = TorchGymEnv(env)
+# env = ObsStackWrapper(env, 4)
 
-transform = v2.Compose([
-    v2.Resize((64, 64)),
-    v2.Grayscale(),
-    v2.ToDtype(th.float32, scale=True)
-])
-
-policy = DiagonalGaussianPolicy(
-    head=ImageEncoder(CNN(), transform=transform),
+policy = CategoricalPolicy(
+    head=FlattenEncoder(),
     body=MLP(func=nn.Tanh, dims=[64, 64])
-).build(env).to("cuda")
+).build(env)
 
 critic = Critic(
-    head=ImageEncoder(CNN(), transform=transform), 
+    head=FlattenEncoder(), 
     body=MLP(func=nn.Tanh, dims=[64, 64]),
-).build(env).to("cuda")
+).build(env)
 
 ppo = (
     TrainGraph(
@@ -63,13 +59,13 @@ ppo = (
     .compile()
 )
 
-buffer = LazyBuffer(2048).to("cuda")
+buffer = LazyBuffer(2048)
 
 loop = TrainLoop(env, buffer, policy, graphs=[ppo])
 loop.run(int(1e6))
 
 
-env = gym.make('CarRacing-v2', render_mode="human")
+env = gym.make('LunarLander-v2', render_mode="human")
 env = TorchGymEnv(env)
 
 N = 16384

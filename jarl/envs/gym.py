@@ -3,11 +3,9 @@ from torch import Tensor
 
 from gymnasium import Env
 
-from typing import Tuple
-
 from jarl.data.dict import DotDict
-from jarl.data.types import Device
 from jarl.envs.space import torch_space
+from jarl.data.types import Device, GymStepOutput
 
 
 class TorchGymEnv:
@@ -35,22 +33,19 @@ class TorchGymEnv:
             action = action.detach().cpu().numpy()
         return self.env.step(action)[:-1]
     
-    def step(
-        self, 
-        trs: DotDict, 
-        stop: bool = False
-    ) -> Tuple[DotDict[str, Tensor], Tensor]:     
-        obs, rew, trm, trc = self._step(trs.act)
+    def step(self, trs: DotDict, stop: bool = False) -> GymStepOutput:     
+        nxt, rew, trm, trc = self._step(trs.act)
 
-        # non-space vals to tensors
+        # step output to tensors
         trs.rew = th.as_tensor(rew, dtype=th.float32)
         trs.trc = th.as_tensor(trc | stop)
         trs.don = th.as_tensor(trm | trs.trc)
-
-        # next observation to tensor
-        trs.nxt = self.obs_space(obs)
+        trs.nxt = self.obs_space(nxt)  # next observation (pre-reset)
 
         # automatically reset
-        obs = self.reset() if trs.don else trs.nxt
+        nxt = self.reset() if trs.don else trs.nxt
 
-        return trs, obs
+        return trs, nxt
+    
+    def close(self) -> None:
+        self.env.close()
