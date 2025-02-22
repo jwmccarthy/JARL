@@ -1,22 +1,18 @@
-import pickle
-
-import torch as th
 import torch.nn as nn
 from torch.optim import Adam
-from torchvision.transforms import v2
 
 import gymnasium as gym
 
 from jarl.envs.gym import TorchGymEnv
-from jarl.envs.wrap import ObsStackWrapper
+from jarl.envs.wrap import FormatImageWrapper, ObsStackWrapper
 
 from jarl.data.dict import DotDict
 from jarl.data.buffer import LazyBuffer
 
-from jarl.modules.core import MLP, CNN
+from jarl.modules.core import MLP
 from jarl.modules.operator import Critic
-from jarl.modules.encoder.core import FlattenEncoder
 from jarl.modules.policy import CategoricalPolicy
+from jarl.modules.encoder.core import FlattenEncoder
 
 from jarl.train.optim import Optimizer
 from jarl.train.update.ppo import PPOUpdate
@@ -33,9 +29,10 @@ from jarl.train.modify.compute import (
 )
 
 
-env = gym.make('LunarLander-v2')
+env = gym.make('ALE/Asteroids-v5')
 env = TorchGymEnv(env)
-# env = ObsStackWrapper(env, 4)
+env = FormatImageWrapper(env)
+env = ObsStackWrapper(env, 4)
 
 policy = CategoricalPolicy(
     head=FlattenEncoder(),
@@ -50,7 +47,7 @@ critic = Critic(
 ppo = (
     TrainGraph(
         PPOUpdate(2048, policy, critic, optimizer=Optimizer(Adam, lr=3e-4)),
-        BatchSampler(64, num_epoch=10)
+        BatchSampler(256, num_epoch=4)
     )
     .add_modifier(ComputeAdvantages())
     .add_modifier(ComputeLogProbs(policy))
@@ -65,7 +62,7 @@ loop = TrainLoop(env, buffer, policy, graphs=[ppo])
 loop.run(int(1e6))
 
 
-env = gym.make('LunarLander-v2', render_mode="human")
+env = gym.make('ALE/Asteroids-v5', render_mode="human")
 env = TorchGymEnv(env)
 
 N = 16384
