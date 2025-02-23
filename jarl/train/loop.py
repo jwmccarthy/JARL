@@ -6,7 +6,7 @@ from typing import List
 from jarl.data.dict import DotDict
 from jarl.data.buffer import Buffer
 
-from jarl.envs.gym import TorchGymEnv
+from jarl.envs.vec import TorchGymEnv
 from jarl.modules.policy import Policy
 from jarl.train.graph import TrainGraph
 from jarl.log.log import Progress
@@ -38,6 +38,8 @@ class TrainLoop:
         rews, lens = [], []
 
         for t in log:
+            reset = False
+
             # step environment
             with th.no_grad():
                 act = self.policy(obs)
@@ -61,5 +63,9 @@ class TrainLoop:
                 data = self.buffer.serve()
                 info = graph.update(data)
                 log.update(updates=info)
+                reset = graph.truncate_envs
+
+            if reset:
+                obs = self.env.reset()
 
         return log

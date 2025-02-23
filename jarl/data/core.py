@@ -70,7 +70,7 @@ class MultiTensor(dict):
         return DotDict(**data)
     
     @multimethod
-    def __getitem__(self, idx: Index) -> Self:
+    def __getitem__(self, idx: tuple | Index) -> Self:
         data = {k: v[idx] for k, v in self.items()}
         return MultiTensor(**data, device=self.device)
     
@@ -130,3 +130,7 @@ class MultiTensor(dict):
     def sample(self, size: int) -> Self:
         assert size <= len(self), "Sample size exceeds buffer size"
         return self[th.randperm(len(self))[:size]]
+    
+    def flatten(self, start_dim: int, end_dim: int) -> th.Tensor:
+        data = {k: v.flatten(start_dim, end_dim) for k, v in self.items()}
+        return MultiTensor(**data, device=self.device)

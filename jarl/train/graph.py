@@ -37,6 +37,7 @@ class TrainGraph:
         self.update_dep = []    # functionals for each update combo
         self.active_dep = None  # active dependencies for ready updates
         self.update_queue = []  # queue for ready updates
+        self.truncate_envs = False
 
     def add_modifier(self, new_mod: DataModifier) -> Self:
         self.mod_graph[new_mod]  # add if not present
@@ -94,6 +95,7 @@ class TrainGraph:
             if update.ready(t):
                 mod_idx += 1 << i
                 self.update_queue.append(update)
+            self.truncate_envs |= update.truncate_envs
 
         self.active_dep = self.update_dep[mod_idx]
 
@@ -109,5 +111,6 @@ class TrainGraph:
                 batch_info |= update(batch)
 
         self.update_queue = []  # reset update queue
+        self.truncate_envs = False
         
         return batch_info

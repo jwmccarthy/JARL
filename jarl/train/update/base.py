@@ -19,6 +19,11 @@ class ModuleUpdate(ABC):
     def requires_keys(self) -> Set[str]:
         ...
 
+    @property
+    @abstractmethod
+    def truncate_envs(self) -> bool:
+        ...
+
     @abstractmethod
     def __call__(self, data: MultiTensor) -> Dict[str, Any]:
         ...

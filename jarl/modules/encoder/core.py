@@ -2,9 +2,8 @@ import torch as th
 import torch.nn as nn
 
 from typing import Self, Tuple
-from abc import ABC, abstractmethod
 
-from jarl.envs.gym import TorchGymEnv
+from jarl.envs.vec import TorchGymEnv
 from jarl.modules.encoder.base import Encoder
 
 

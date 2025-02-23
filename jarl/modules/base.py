@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from typing import Self
 
-from jarl.envs.gym import TorchGymEnv
+from jarl.envs.vec import TorchGymEnv
 from jarl.modules.encoder.core import Encoder
 
 

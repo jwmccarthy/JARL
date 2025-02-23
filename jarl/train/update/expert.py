@@ -23,6 +23,10 @@ class GAIFOUpdate(GradientUpdate):
     @property
     def requires_keys(self) -> Set[str]:
         return {"obs", "nxt", "lbl"}
+        
+    @property
+    def truncate_envs(self) -> bool:
+        return True
     
     def loss(self, data: MultiTensor) -> LossInfo:
         prob = self.discrim((data.obs, data.nxt))

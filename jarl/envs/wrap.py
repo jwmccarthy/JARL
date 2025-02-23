@@ -9,8 +9,8 @@ from collections import deque
 from jarl.data.dict import DotDict
 from jarl.data.types import GymStepOutput
 
-from jarl.envs.gym import TorchGymEnv
-from jarl.envs.space import BoxSpace, StackedSpace
+from jarl.envs.vec import TorchGymEnv
+from jarl.envs.space import BoxSpace, ConcatSpace
 
 
 class TorchGymEnvWrapper:
@@ -45,16 +45,14 @@ class FormatImageWrapper(TorchGymEnvWrapper):
         self.size = size if isinstance(size, tuple) else (size, size)
         self.transform = v2.Resize(self.size)
 
-        # alter source obs space shape
-        space = spaces.Box(
-            low=0, high=1, 
-            shape=(self.obs_space.shape[-1], *self.size), 
-            dtype=np.float32
-        )
+        # new obs space image dims
+        chans = self.obs_space.shape[-1]
+        shape = self.obs_space.shape[:-3] + (chans, *self.size)
+        space = spaces.Box(low=0, high=1, shape=shape, dtype=np.float32)
         self.obs_space = BoxSpace(space, device=self.device)
 
     def _transform(self, obs: th.Tensor) -> th.Tensor:
-        return self.transform(obs.movedim(-1, 0) / 255.0)
+        return self.transform(obs.movedim(-1, -3) / 255.0)
     
     def reset(self) -> th.Tensor:
         return self._transform(super().reset())
@@ -74,7 +72,7 @@ class ObsStackWrapper(TorchGymEnvWrapper):
     ) -> None:
         super().__init__(env)
         self.stack_len = stack_len
-        self.obs_space = StackedSpace(env.obs_space, stack_len)
+        self.obs_space = ConcatSpace(env.obs_space, stack_len)
         self.obs_queue = deque(maxlen=stack_len)
 
     def _stack(self) -> th.Tensor:

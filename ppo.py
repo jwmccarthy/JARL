@@ -3,7 +3,7 @@ from torch.optim import Adam
 
 import gymnasium as gym
 
-from jarl.envs.gym import TorchGymEnv
+from jarl.envs.vec import TorchGymEnv
 from jarl.envs.wrap import FormatImageWrapper, ObsStackWrapper
 
 from jarl.data.dict import DotDict
@@ -29,10 +29,9 @@ from jarl.train.modify.compute import (
 )
 
 
-env = gym.make('ALE/Asteroids-v5')
-env = TorchGymEnv(env)
-env = FormatImageWrapper(env)
-env = ObsStackWrapper(env, 4)
+env = TorchGymEnv("LunarLander-v2", 4)
+# env = FormatImageWrapper(env)
+# env = ObsStackWrapper(env, 4)
 
 policy = CategoricalPolicy(
     head=FlattenEncoder(),
@@ -47,7 +46,7 @@ critic = Critic(
 ppo = (
     TrainGraph(
         PPOUpdate(2048, policy, critic, optimizer=Optimizer(Adam, lr=3e-4)),
-        BatchSampler(256, num_epoch=4)
+        BatchSampler(64, num_epoch=10)
     )
     .add_modifier(ComputeAdvantages())
     .add_modifier(ComputeLogProbs(policy))
@@ -62,8 +61,7 @@ loop = TrainLoop(env, buffer, policy, graphs=[ppo])
 loop.run(int(1e6))
 
 
-env = gym.make('ALE/Asteroids-v5', render_mode="human")
-env = TorchGymEnv(env)
+env = TorchGymEnv("LunarLander-v2")
 
 N = 16384
 

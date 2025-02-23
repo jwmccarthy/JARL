@@ -18,4 +18,4 @@ class Discriminator(CompositeNet):
         super().__init__(head, body, foot)
 
     def forward(self, x: Tuple[th.Tensor, ...]) -> th.Tensor:
-        return super().forward(x).squeeze()
+        return super().forward(x).squeeze(-1)
