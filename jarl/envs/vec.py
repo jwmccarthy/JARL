@@ -14,7 +14,7 @@ class TorchGymEnv:
 
     def __init__(
         self, 
-        env_id: str,
+        env_func: str,
         n_envs: int = 1,
         device: Device = "cpu",
         sync_env: bool = True,
@@ -24,7 +24,7 @@ class TorchGymEnv:
         self.device = device
 
         # initialize vectorized env
-        env_funcs = n_envs * [lambda: gym.make(env_id, **kwargs)]
+        env_funcs = n_envs * [env_func]
         env_type = SyncVecEnv if sync_env else AsyncVecEnv
         self.env = env_type(env_funcs)
 

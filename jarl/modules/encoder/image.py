@@ -19,4 +19,7 @@ class ImageEncoder(Encoder):
         return self
     
     def forward(self, x: th.Tensor) -> th.Tensor:
-        return self.cnn(x)
+        batch_dim = x.shape[:-3]
+        x = x.view(-1, *x.shape[-3:])
+        x = self.cnn(x / 255.0)
+        return x.view(*batch_dim, -1)

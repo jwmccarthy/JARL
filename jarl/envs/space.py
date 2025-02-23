@@ -169,7 +169,7 @@ class ConcatSpace(TensorSpec):
         return all(self.space.contains(y) for y in x)
     
     def sample(self) -> Tensor:
-        return th.cat([self.space.sample() for _ in range(self.count)])
+        return th.cat([self.space.sample() for _ in range(self.count)], 0)
 
     @property
     def flat_dim(self) -> int:

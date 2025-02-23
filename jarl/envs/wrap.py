@@ -10,7 +10,7 @@ from jarl.data.dict import DotDict
 from jarl.data.types import GymStepOutput
 
 from jarl.envs.vec import TorchGymEnv
-from jarl.envs.space import BoxSpace, ConcatSpace
+from jarl.envs.space import BoxSpace, ConcatSpace, StackedSpace
 
 
 class TorchGymEnvWrapper:
@@ -50,6 +50,8 @@ class FormatImageWrapper(TorchGymEnvWrapper):
         shape = self.obs_space.shape[:-3] + (chans, *self.size)
         space = spaces.Box(low=0, high=1, shape=shape, dtype=np.float32)
         self.obs_space = BoxSpace(space, device=self.device)
+        self.vec_obs_space = StackedSpace(
+            self.obs_space, self.n_envs, device=self.device)
 
     def _transform(self, obs: th.Tensor) -> th.Tensor:
         return self.transform(obs.movedim(-1, -3) / 255.0)
@@ -60,6 +62,7 @@ class FormatImageWrapper(TorchGymEnvWrapper):
     def step(self, trs: DotDict, stop: bool = False) -> GymStepOutput:
         trs, obs = self.env.step(trs, stop)
         trs.nxt = self._transform(obs)
+        obs = self._transform(obs)
         return trs, obs
 
 
@@ -72,11 +75,14 @@ class ObsStackWrapper(TorchGymEnvWrapper):
     ) -> None:
         super().__init__(env)
         self.stack_len = stack_len
-        self.obs_space = ConcatSpace(env.obs_space, stack_len)
         self.obs_queue = deque(maxlen=stack_len)
+        self.obs_space = ConcatSpace(
+            env.obs_space, stack_len, device=self.device)
+        self.vec_obs_space = StackedSpace(
+            self.obs_space, self.n_envs, device=self.device)
 
     def _stack(self) -> th.Tensor:
-        return th.cat(list(self.obs_queue), dim=0)
+        return th.cat(list(self.obs_queue), dim=1)
 
     def _transform(self, obs: th.Tensor) -> th.Tensor:
         self.obs_queue.append(obs)
@@ -91,5 +97,7 @@ class ObsStackWrapper(TorchGymEnvWrapper):
     def step(self, trs: DotDict, stop: bool = False) -> GymStepOutput:
         trs, obs = super().step(trs, stop)
         trs.nxt = self._transform(trs.nxt)
-        obs = self.reset() if trs.don else trs.nxt
+        obs = self._transform(obs)
         return trs, obs
+    
+

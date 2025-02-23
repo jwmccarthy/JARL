@@ -4,15 +4,14 @@ from torch.optim import Adam
 import gymnasium as gym
 
 from jarl.envs.vec import TorchGymEnv
-from jarl.envs.wrap import FormatImageWrapper, ObsStackWrapper
 
 from jarl.data.dict import DotDict
 from jarl.data.buffer import LazyBuffer
 
-from jarl.modules.core import MLP
+from jarl.modules.core import MLP, CNN
 from jarl.modules.operator import Critic
 from jarl.modules.policy import CategoricalPolicy
-from jarl.modules.encoder.core import FlattenEncoder
+from jarl.modules.encoder.image import ImageEncoder
 
 from jarl.train.optim import Optimizer
 from jarl.train.update.ppo import PPOUpdate
@@ -29,24 +28,30 @@ from jarl.train.modify.compute import (
 )
 
 
-env = TorchGymEnv("LunarLander-v2", 4)
-# env = FormatImageWrapper(env)
-# env = ObsStackWrapper(env, 4)
+def make_env(id):
+    def _make_env():
+        env = gym.make(id)
+        env = gym.wrappers.AtariPreprocessing(env, frame_skip=1)
+        env = gym.wrappers.FrameStack(env, 4)
+        return env
+    return _make_env
+
+env = TorchGymEnv(make_env("ALE/Breakout-v5"), 8, device="cuda")
 
 policy = CategoricalPolicy(
-    head=FlattenEncoder(),
+    head=ImageEncoder(CNN()),
     body=MLP(func=nn.Tanh, dims=[64, 64])
-).build(env)
+).build(env).to("cuda")
 
 critic = Critic(
-    head=FlattenEncoder(), 
+    head=ImageEncoder(CNN()), 
     body=MLP(func=nn.Tanh, dims=[64, 64]),
-).build(env)
+).build(env).to("cuda")
 
 ppo = (
     TrainGraph(
-        PPOUpdate(2048, policy, critic, optimizer=Optimizer(Adam, lr=3e-4)),
-        BatchSampler(64, num_epoch=10)
+        PPOUpdate(1024, policy, critic, optimizer=Optimizer(Adam, lr=3e-4)),
+        BatchSampler(32, num_epoch=4)
     )
     .add_modifier(ComputeAdvantages())
     .add_modifier(ComputeLogProbs(policy))
@@ -55,13 +60,15 @@ ppo = (
     .compile()
 )
 
-buffer = LazyBuffer(2048)
+buffer = LazyBuffer(1024).to("cuda")
 
 loop = TrainLoop(env, buffer, policy, graphs=[ppo])
 loop.run(int(1e6))
 
 
-env = TorchGymEnv("LunarLander-v2")
+env = TorchGymEnv("ALE/Breakout-v5", render_mode="human")
+
+policy = policy.to("cpu")
 
 N = 16384
 
