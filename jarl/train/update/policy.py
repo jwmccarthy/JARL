@@ -38,7 +38,7 @@ class ClippedPolicyUpdate(GradientUpdate):
         ent = self.policy.entropy(data.obs)
 
         lograt = lgp - data.lgp
-        ratios = th.exp(lograt)
+        ratios = lograt.exp()
         with th.no_grad():
             approx_kl = ((ratios - 1) - lograt).mean().item()
 

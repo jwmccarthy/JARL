@@ -70,9 +70,6 @@ class ComputeAdvantages(DataModifier):
         don, trc = data.don, data.trc
         data.adv = th.zeros_like(data.rew)
 
-        # bootstrap reward on non-terminal end states
-        data.rew[trc] += self.gamma * data.next_val[trc]
-
         # compute TD errors
         deltas = data.rew + self.gamma * data.next_val * ~don - data.val
         discnt = self.gamma * self.lmbda * ~don

@@ -23,7 +23,7 @@ class CompositeNet(nn.Module):
         self.foot = foot
 
     def build(self, env: TorchGymEnv, out_dim: int = 1) -> Self:
-        self.head.build(env)
+        self.head = self.head if self.head.built else self.head.build(env)
         self.body.build(self.head.feats, out_dim)
         self.foot = self.foot if self.foot else nn.Identity()
         self.model = nn.Sequential(self.head, self.body, self.foot)
