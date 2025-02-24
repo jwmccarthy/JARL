@@ -40,8 +40,8 @@ class CNN(nn.Module):
 
     def __init__(
         self,
-        dims: List[int] = [32, 64],
         func: nn.Module = nn.ReLU,
+        dims: List[int] = [32, 64],
         kernel: List[int] = [8, 4],
         stride: List[int] = [4, 2]
     ) -> None:

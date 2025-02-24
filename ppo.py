@@ -30,8 +30,8 @@ from jarl.train.modify.compute import (
 
 def make_env(id):
     def _make_env():
-        env = gym.make(id)
-        env = gym.wrappers.AtariPreprocessing(env, frame_skip=1)
+        env = gym.make(id, frameskip=1)
+        env = gym.wrappers.AtariPreprocessing(env, frame_skip=4)
         env = gym.wrappers.FrameStack(env, 4)
         return env
     return _make_env
@@ -39,19 +39,28 @@ def make_env(id):
 env = TorchGymEnv(make_env("ALE/Breakout-v5"), 8, device="cuda")
 
 policy = CategoricalPolicy(
-    head=ImageEncoder(CNN()),
-    body=MLP(func=nn.Tanh, dims=[64, 64])
+    head=ImageEncoder(CNN(
+        dims=[32, 64, 64],
+        kernel=[8, 4, 3],
+        stride=[4, 2, 1]
+    )),
+    body=MLP(func=nn.ReLU, dims=[512])
 ).build(env).to("cuda")
 
 critic = Critic(
-    head=ImageEncoder(CNN()), 
-    body=MLP(func=nn.Tanh, dims=[64, 64]),
+    head=ImageEncoder(CNN(
+        dims=[32, 64, 64],
+        kernel=[8, 4, 3],
+        stride=[4, 2, 1]
+    )),    
+    body=MLP(func=nn.ReLU, dims=[512]),
 ).build(env).to("cuda")
 
 ppo = (
     TrainGraph(
-        PPOUpdate(1024, policy, critic, optimizer=Optimizer(Adam, lr=3e-4)),
-        BatchSampler(32, num_epoch=4)
+        PPOUpdate(128, policy, critic, clip=0.1,
+                  optimizer=Optimizer(Adam, lr=2.5e-4)),
+        BatchSampler(256, num_epoch=4)
     )
     .add_modifier(ComputeAdvantages())
     .add_modifier(ComputeLogProbs(policy))
@@ -60,7 +69,7 @@ ppo = (
     .compile()
 )
 
-buffer = LazyBuffer(1024).to("cuda")
+buffer = LazyBuffer(128).to("cuda")
 
 loop = TrainLoop(env, buffer, policy, graphs=[ppo])
 loop.run(int(1e6))

@@ -21,6 +21,7 @@ class ComputeValues(DataModifier):
     def produces_keys(self) -> Set[str]:
         return {"val", "next_val"}
 
+    @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:
         data.val = self.critic(data.obs)
         data.next_val = self.critic(data.nxt)
@@ -40,6 +41,7 @@ class ComputeLogProbs(DataModifier):
     def produces_keys(self) -> Set[str]:
         return {"lgp"}
 
+    @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:
         data.lgp = self.policy.logprob(data.obs, data.act)
         return data
@@ -63,6 +65,7 @@ class ComputeAdvantages(DataModifier):
     def produces_keys(self) -> Set[str]:
         return {"adv"}
 
+    @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:
         don, trc = data.don, data.trc
         data.adv = th.zeros_like(data.rew)
@@ -91,6 +94,7 @@ class ComputeReturns(DataModifier):
     def produces_keys(self) -> Set[str]:
         return {"ret"}
 
+    @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:
         data.ret = data.val + data.adv
         return data

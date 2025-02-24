@@ -37,12 +37,13 @@ class ClippedPolicyUpdate(GradientUpdate):
         lgp = self.policy.logprob(data.obs, data.act)
         ent = self.policy.entropy(data.obs)
 
+        lograt = lgp - data.lgp
+        ratios = th.exp(lograt)
         with th.no_grad():
-            approx_kl = (lgp - data.lgp).mean().item()
+            approx_kl = ((ratios - 1) - lograt).mean().item()
 
         # policy loss
         norm_adv = (data.adv - data.adv.mean()) / (data.adv.std() + 1e-8)
-        ratios = th.exp(lgp - data.lgp)
         p_loss = -th.min(
             norm_adv * ratios,
             norm_adv * th.clamp(ratios, 1 - self.clip, 1 + self.clip)

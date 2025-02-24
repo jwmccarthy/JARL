@@ -36,6 +36,8 @@ class TrainLoop:
         obs = self.env.reset()
         log = self.logger(steps)
         rews, lens = [], []
+        curr_rews = self.env.n_envs * [0]
+        curr_lens = self.env.n_envs * [0]
 
         for t in log:
             reset = False
@@ -49,13 +51,19 @@ class TrainLoop:
             # store data
             self.buffer.store(trs)
 
+            for i in range(self.env.n_envs):
+                curr_rews[i] += trs.rew[i].item()
+                curr_lens[i] += 1
+                if trs.don[i]:
+                    rews.append(curr_rews[i])
+                    lens.append(curr_lens[i])
+                    curr_rews[i] = curr_lens[i] = 0
+
             if (queue := self.ready(t)):
-                data = self.buffer.serve()
-                rews.extend(episodic_return(data))
-                lens.extend(episodic_length(data))
                 log.update(episode=dict(
                     reward=np.mean(rews[-100:]),
-                    length=np.mean(lens[-100:])
+                    length=np.mean(lens[-100:]),
+                    glob_t=t*self.env.n_envs
                 ))
 
             # run blocks
@@ -63,7 +71,6 @@ class TrainLoop:
                 data = self.buffer.serve()
                 info = graph.update(data)
                 log.update(updates=info)
-                reset = graph.truncate_envs
 
             if reset:
                 obs = self.env.reset()

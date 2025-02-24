@@ -2,7 +2,7 @@ import torch as th
 
 from multimethod import multimethod
 from typing import (
-    Dict, Self, Any, Iterable, Mapping, Tuple
+    Dict, Self, Any, Iterable, Mapping, Tuple, List
 )
 
 from jarl.data.dict import DotDict
@@ -60,7 +60,7 @@ class MultiTensor(dict):
         return super().__getitem__(idx)
     
     @multimethod
-    def __getitem__(self, keys: Iterable[str]) -> Self:
+    def __getitem__(self, keys: List[str]) -> Self:
         data = {k: self[k] for k in keys}
         return MultiTensor(**data)
 
