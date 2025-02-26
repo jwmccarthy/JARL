@@ -67,12 +67,14 @@ class ComputeAdvantages(DataModifier):
 
     @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:
-        don, trc = data.don, data.trc
+        data.trc[-1] = ~data.don[-1]
+        not_done = 1 - data.don.float()
+        non_term = (~data.don | data.trc).float()
         data.adv = th.zeros_like(data.rew)
 
         # compute TD errors
-        deltas = data.rew + self.gamma * data.next_val * ~don - data.val
-        discnt = self.gamma * self.lmbda * ~don
+        deltas = data.rew + self.gamma * data.next_val * non_term - data.val
+        discnt = self.gamma * self.lmbda * not_done
 
         adv = 0
         for t in reversed(range(len(data.adv))):
@@ -94,4 +96,20 @@ class ComputeReturns(DataModifier):
     @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:
         data.ret = data.val + data.adv
+        return data
+
+
+class SignRewards(DataModifier):
+
+    @property
+    def requires_keys(self) -> Set[str]:
+        return {"rew"}
+
+    @property
+    def produces_keys(self) -> Set[str]:
+        return {"rew"}
+
+    @th.no_grad()
+    def __call__(self, data: MultiTensor) -> MultiTensor:
+        data.rew = data.rew.sign()
         return data

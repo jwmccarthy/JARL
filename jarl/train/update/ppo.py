@@ -40,7 +40,7 @@ class PPOUpdate(GradientUpdate):
             freq, policy, clip=clip, ent_coef=ent_coef
         ).loss
         self.critic_loss = MSECriticUpdate(
-            freq, critic, val_coef=val_coef
+            freq, critic, clip=clip, val_coef=val_coef
         ).loss
 
     @property

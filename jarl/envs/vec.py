@@ -59,8 +59,8 @@ class TorchGymEnv:
         trs.rew = th.as_tensor(rew, dtype=th.float32)
         trs.trc = th.as_tensor(trc | stop)
         trs.don = th.as_tensor(trm | trc)
-        trs.nxt = self.vec_obs_space(obs)  # next observation (pre-reset)
-        nxt = self.vec_obs_space(nxt)      # next observation (post-reset)
+        trs.nxt = self.vec_obs_space(nxt)  # next observation (pre-reset)
+        nxt = self.vec_obs_space(obs)      # next observation (post-reset)
 
         return trs, nxt
     

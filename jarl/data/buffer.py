@@ -68,6 +68,11 @@ class LazyBuffer(Buffer):
             self._data.to(device)
         return self
 
+    def reset(self) -> Self:
+        for key, val in self._data.items():
+            self._data[key] = val.zero_()
+        return self
+
     def store(self, data: Dict[str, th.Tensor]) -> None:
         # lazy-initialize tensor storage
         if not self.init:

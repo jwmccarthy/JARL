@@ -1,6 +1,8 @@
 import numpy as np
 import torch as th
 
+import time
+
 from typing import List
 
 from jarl.data.dict import DotDict
@@ -39,6 +41,8 @@ class TrainLoop:
         curr_rews = self.env.n_envs * [0]
         curr_lens = self.env.n_envs * [0]
 
+        start = time.time()
+
         for t in log:
             reset = False
 
@@ -59,15 +63,15 @@ class TrainLoop:
                     lens.append(curr_lens[i])
                     curr_rews[i] = curr_lens[i] = 0
 
-            if (queue := self.ready(t)):
-                log.update(episode=dict(
-                    reward=np.mean(rews[-100:]),
-                    length=np.mean(lens[-100:]),
-                    glob_t=t*self.env.n_envs
-                ))
+            log.update(episode=dict(
+                reward=np.mean(rews[-100:]),
+                length=np.mean(lens[-100:]),
+                global_t=t*self.env.n_envs,
+                time=time.time() - start
+            ))
 
             # run blocks
-            for graph in queue:
+            for graph in self.ready(t):
                 data = self.buffer.serve()
                 info = graph.update(data)
                 log.update(updates=info)

@@ -25,12 +25,13 @@ from jarl.train.modify.compute import (
     ComputeLogProbs,
     ComputeAdvantages,
     ComputeReturns,
+    SignRewards
 )
 
 
-def make_env(id):
+def make_env(id, render=False):
     def _make_env():
-        env = gym.make(id, frameskip=1)
+        env = gym.make(id, frameskip=1, render_mode="human" if render else None)
         env = gym.wrappers.AtariPreprocessing(env, frame_skip=4)
         env = gym.wrappers.FrameStack(env, 4)
         return env
@@ -48,11 +49,7 @@ policy = CategoricalPolicy(
 ).build(env).to("cuda")
 
 critic = Critic(
-    head=ImageEncoder(CNN(
-        dims=[32, 64, 64],
-        kernel=[8, 4, 3],
-        stride=[4, 2, 1]
-    )),    
+    head=policy.head,    
     body=MLP(func=nn.ReLU, dims=[512]),
 ).build(env).to("cuda")
 
@@ -75,15 +72,13 @@ loop = TrainLoop(env, buffer, policy, graphs=[ppo])
 loop.run(int(1e6))
 
 
-env = TorchGymEnv("ALE/Breakout-v5", render_mode="human")
+# env = TorchGymEnv(make_env("ALE/Breakout-v5", render=True), 1, device="cuda")
 
-policy = policy.to("cpu")
+# N = 65536
 
-N = 16384
-
-obs = env.reset()
-for t in range(N):
-    act = policy(obs, sample=False)
-    trs = DotDict(obs=obs, act=act)
-    trs, obs = env.step(trs=trs)
-env.env.close()
+# obs = env.reset()
+# for t in range(N):
+#     act = policy(obs, sample=False)
+#     trs = DotDict(act=act)
+#     _, obs = env.step(trs=trs)
+# env.env.close()
