@@ -15,7 +15,7 @@ class ImageEncoder(Encoder):
 
     def build(self, env: TorchGymEnv) -> Self:
         super().build(env)
-        self.cnn.build().to(env.device)
+        self.cnn.build(env.obs_space.shape[0]).to(env.device)
         self.feats = len(self(env.obs_space.sample()))
         return self
     

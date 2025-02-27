@@ -10,6 +10,7 @@ from jarl.data.buffer import LazyBuffer
 
 from jarl.modules.core import MLP, CNN
 from jarl.modules.operator import Critic
+from jarl.modules.utils import init_layer
 from jarl.modules.policy import CategoricalPolicy
 from jarl.modules.encoder.image import ImageEncoder
 
@@ -24,8 +25,7 @@ from jarl.train.modify.compute import (
     ComputeValues,
     ComputeLogProbs,
     ComputeAdvantages,
-    ComputeReturns,
-    SignRewards
+    ComputeReturns
 )
 
 
@@ -45,12 +45,18 @@ policy = CategoricalPolicy(
         kernel=[8, 4, 3],
         stride=[4, 2, 1]
     )),
-    body=MLP(func=nn.ReLU, dims=[512])
+    body=MLP(
+        func=nn.ReLU, dims=[512],
+        init_func=lambda x: init_layer(x, std=0.01)
+    )
 ).build(env).to("cuda")
 
 critic = Critic(
     head=policy.head,    
-    body=MLP(func=nn.ReLU, dims=[512]),
+    body=MLP(
+        func=nn.ReLU, dims=[512],
+        init_func=lambda x: init_layer(x, std=1.0)
+    ),
 ).build(env).to("cuda")
 
 ppo = (

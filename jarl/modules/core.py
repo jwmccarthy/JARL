@@ -3,6 +3,8 @@ from torch import Tensor
 
 from typing import List, Self
 
+from jarl.modules.utils import init_layer
+
 
 class MLP(nn.Module):
 
@@ -11,18 +13,21 @@ class MLP(nn.Module):
     def __init__(
         self, 
         dims: List[int] = [64, 64],
-        func: nn.Module = nn.ReLU
+        func: nn.Module = nn.ReLU,
+        init_func=init_layer
     ) -> None:
         super().__init__()
-        self.dims = dims  # hidden layer dims
-        self.func = func  # activation function
+        self.dims = dims            # hidden layer dims
+        self.func = func            # activation function
+        self.init_func = init_func  # weight init function
 
     def build(self, in_dim: int, out_dim: int) -> Self:
         self.model = nn.Sequential()
 
         # dims define hidden layers
         for next_dim in self.dims:
-            self.model.extend([nn.Linear(in_dim, next_dim), self.func()])
+            layer = self.init_func(nn.Linear(in_dim, next_dim))
+            self.model.extend([layer, self.func()])
             in_dim = next_dim
 
         # output linear layer
@@ -43,13 +48,15 @@ class CNN(nn.Module):
         func: nn.Module = nn.ReLU,
         dims: List[int] = [32, 64],
         kernel: List[int] = [8, 4],
-        stride: List[int] = [4, 2]
+        stride: List[int] = [4, 2],
+        init_func=init_layer
     ) -> None:
         super().__init__()
         self.dims = dims
         self.func = func
         self.kernel = kernel
         self.stride = stride
+        self.init_func = init_func
 
     def build(self, in_dim: int = None) -> Self:
         self.model = nn.Sequential()
@@ -60,8 +67,8 @@ class CNN(nn.Module):
         # dims, kernel, stride define conv layers
         for dim, kern, strd in zip(self.dims, self.kernel, self.stride):
             params = (in_dim is not None) * (in_dim,) + (dim, kern)
-            self.model.append(conv_type(*params, stride=strd))
-            self.model.append(self.func())
+            layer = self.init_func(conv_type(*params, stride=strd))
+            self.model.extend([layer, self.func()])
             conv_type, in_dim = nn.Conv2d, dim
 
         # flatten final layer outputs

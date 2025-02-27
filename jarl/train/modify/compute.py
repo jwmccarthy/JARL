@@ -74,6 +74,8 @@ class ComputeAdvantages(DataModifier):
 
         # compute TD errors
         deltas = data.rew + self.gamma * data.next_val * non_term - data.val
+
+        # vectorize discount factor
         discnt = self.gamma * self.lmbda * not_done
 
         adv = 0

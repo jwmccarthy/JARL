@@ -44,8 +44,6 @@ class TrainLoop:
         start = time.time()
 
         for t in log:
-            reset = False
-
             # step environment
             with th.no_grad():
                 act = self.policy(obs)
@@ -66,7 +64,7 @@ class TrainLoop:
             log.update(episode=dict(
                 reward=np.mean(rews[-100:]),
                 length=np.mean(lens[-100:]),
-                global_t=t*self.env.n_envs,
+                global_t=(t+1)*self.env.n_envs,
                 time=time.time() - start
             ))
 
@@ -75,8 +73,5 @@ class TrainLoop:
                 data = self.buffer.serve()
                 info = graph.update(data)
                 log.update(updates=info)
-
-            if reset:
-                obs = self.env.reset()
 
         return log
