@@ -41,6 +41,9 @@ class TrainLoop:
         curr_rews = self.env.n_envs * [0]
         curr_lens = self.env.n_envs * [0]
 
+        for g in self.graphs:
+            g.init_schedulers(steps)
+
         start = time.time()
 
         for t in log:
@@ -62,8 +65,8 @@ class TrainLoop:
                     curr_rews[i] = curr_lens[i] = 0
 
             log.update(episode=dict(
-                reward=np.mean(rews[-100:]),
-                length=np.mean(lens[-100:]),
+                reward=np.mean(rews[-25:]),
+                length=np.mean(lens[-25:]),
                 global_t=(t+1)*self.env.n_envs,
                 time=time.time() - start
             ))

@@ -19,7 +19,7 @@ class BatchSampler(Sampler):
         self.num_batch = num_batch
 
     def sample(self, data: MultiTensor) -> SampleOutput:
-        data = data.flatten(0, 1)  # flatten data into single tensors
+        data = data.flatten(0, 1)  # flatten data into single-row tensors
 
         # calculate # of batches if not provided
         num_batch = self.num_batch or (len(data) // self.batch_size)

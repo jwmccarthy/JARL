@@ -37,7 +37,6 @@ class TrainGraph:
         self.update_dep = []    # functionals for each update combo
         self.active_dep = None  # active dependencies for ready updates
         self.update_queue = []  # queue for ready updates
-        self.truncate_envs = False
 
     def add_modifier(self, new_mod: DataModifier) -> Self:
         self.mod_graph[new_mod]  # add if not present
@@ -87,6 +86,11 @@ class TrainGraph:
 
         return self
     
+    def init_schedulers(self, steps: int) -> None:
+        for update in self.updates:
+            up_step = steps // update.freq
+            update.scheduler.start(up_step)
+    
     def ready(self, t: int) -> bool:
         mod_idx = 0
 
@@ -95,22 +99,23 @@ class TrainGraph:
             if update.ready(t):
                 mod_idx += 1 << i
                 self.update_queue.append(update)
-            self.truncate_envs |= update.truncate_envs
 
         self.active_dep = self.update_dep[mod_idx]
 
         return bool(self.update_queue)
     
     def update(self, data: MultiTensor) -> Dict[str, Any]:
-        with th.no_grad(): 
-            data = self.active_dep(data)
+        data = self.active_dep(data)
 
         for batch in self.sampler.sample(data):
             batch_info = {}
             for update in self.update_queue:
                 batch_info |= update(batch)
 
+        for update in self.update_queue:
+            if update.scheduler:
+                update.scheduler.step()
+
         self.update_queue = []  # reset update queue
-        self.truncate_envs = False
         
         return batch_info

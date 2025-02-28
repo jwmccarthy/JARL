@@ -6,7 +6,7 @@ from jarl.data.core import MultiTensor
 from jarl.modules.policy import Policy
 from jarl.modules.operator import Critic
 
-from jarl.train.optim import Optimizer
+from jarl.train.optim import Optimizer, Scheduler
 from jarl.train.update.base import GradientUpdate
 from jarl.train.update.policy import ClippedPolicyUpdate
 from jarl.train.update.critic import MSECriticUpdate
@@ -14,18 +14,23 @@ from jarl.train.update.critic import MSECriticUpdate
 
 class PPOUpdate(GradientUpdate):
 
+    _requires_keys = {"obs", "act", "adv", "lgp", "val", "ret"}
+
     def __init__(
         self, 
         freq: int,
         policy: Policy, 
         critic: Critic,
         optimizer: Optimizer = None,
+        scheduler: Scheduler = None,
         clip: float = 0.2,
         val_coef: float = 0.5,
         ent_coef: float = 0.01,
     ) -> None:
         super().__init__(
-            freq, [policy, critic], optimizer=optimizer
+            freq, [policy, critic], 
+            optimizer=optimizer,
+            scheduler=scheduler
         )
         self.policy = policy
         self.critic = critic
@@ -42,14 +47,6 @@ class PPOUpdate(GradientUpdate):
         self.critic_loss = MSECriticUpdate(
             freq, critic, clip=clip, val_coef=val_coef
         ).loss
-
-    @property
-    def requires_keys(self) -> Set[str]:
-        return {"obs", "act", "adv", "lgp", "val", "ret"}
-        
-    @property
-    def truncate_envs(self) -> bool:
-        return True
     
     def loss(self, data: MultiTensor) -> LossInfo:
         p_loss, p_info = self.policy_loss(data)

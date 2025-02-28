@@ -57,6 +57,11 @@ class CNN(nn.Module):
         self.kernel = kernel
         self.stride = stride
         self.init_func = init_func
+        self.add_layer = []
+
+    def append(self, layer: nn.Module) -> Self:
+        self.add_layer.append(layer)
+        return self
 
     def build(self, in_dim: int = None) -> Self:
         self.model = nn.Sequential()
@@ -73,6 +78,9 @@ class CNN(nn.Module):
 
         # flatten final layer outputs
         self.model.append(nn.Flatten(start_dim=-3))
+
+        # append additional layers
+        self.model.extend(self.add_layer)
 
         return self
     

@@ -6,24 +6,27 @@ from typing import Set
 
 from jarl.data.types import LossInfo
 from jarl.data.core import MultiTensor
-from jarl.train.optim import Optimizer
+from jarl.train.optim import Optimizer, Scheduler
 from jarl.train.update.base import GradientUpdate
 
 
 class BCEDiscriminatorUpdate(GradientUpdate):
     
+    _requires_keys = {"pol_obs", "exp_obs"}
+
     def __init__(
         self, 
         freq: int, 
         model: nn.Module,
-        optimizer: Optimizer = None
+        optimizer: Optimizer = None,
+        scheduler: Scheduler = None
     ) -> None:
-        super().__init__(freq, model, optimizer=optimizer)
+        super().__init__(
+            freq, model, 
+            optimizer=optimizer,
+            scheduler=scheduler
+        )
         self.model = model
-
-    @property
-    def requires_keys(self) -> Set[str]:
-        return {"pol_obs", "exp_obs"}
 
     def loss(self, data: MultiTensor) -> LossInfo:
         # current policy loss

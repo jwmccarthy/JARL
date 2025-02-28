@@ -6,7 +6,7 @@ from typing import Any, Dict, Set, List
 
 from jarl.data.types import LossInfo
 from jarl.data.core import MultiTensor
-from jarl.train.optim import Optimizer
+from jarl.train.optim import Optimizer, Scheduler
 
 
 class ModuleUpdate(ABC):
@@ -19,11 +19,6 @@ class ModuleUpdate(ABC):
     def requires_keys(self) -> Set[str]:
         ...
 
-    @property
-    @abstractmethod
-    def truncate_envs(self) -> bool:
-        ...
-
     @abstractmethod
     def __call__(self, data: MultiTensor) -> Dict[str, Any]:
         ...
@@ -34,11 +29,14 @@ class ModuleUpdate(ABC):
 
 class GradientUpdate(ModuleUpdate, ABC):
 
+    _requires_keys: Set[str] = set()
+
     def __init__(
         self, 
         freq: int, 
         modules: nn.Module | List[nn.Module],
-        optimizer: Optimizer = None
+        optimizer: Optimizer = None,
+        scheduler: Scheduler = None
     ) -> None:
         super().__init__(freq)
 
@@ -46,15 +44,21 @@ class GradientUpdate(ModuleUpdate, ABC):
             modules = [modules]
         self.modules = modules
 
-        # build optimizer if given
         self.optimizer = optimizer
+        self.scheduler = scheduler
         if self.optimizer is not None:
             self.build(self.optimizer)
 
     def build(self, optimizer: Optimizer) -> None:
         self.optimizer = optimizer
         self.optimizer.build(self.modules)
+        if self.scheduler:
+            self.scheduler.build(self.optimizer)
         return self
+    
+    @property
+    def requires_keys(self) -> Set[str]:
+        return self._requires_keys
 
     @abstractmethod
     def loss(self, data: MultiTensor) -> LossInfo:

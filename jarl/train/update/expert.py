@@ -5,29 +5,28 @@ from typing import Set
 
 from jarl.data.types import LossInfo
 from jarl.data.core import MultiTensor
-from jarl.train.optim import Optimizer
+from jarl.train.optim import Optimizer, Scheduler
 from jarl.train.update.base import GradientUpdate
 
 
 class GAIFOUpdate(GradientUpdate):
 
+    _requires_keys = {"obs", "nxt", "lbl"}
+
     def __init__(
         self, 
         freq: int, 
         discrim: nn.Module,
-        optimizer: Optimizer = None
+        optimizer: Optimizer = None,
+        scheduler: Scheduler = None,
     ) -> None:
-        super().__init__(freq, discrim, optimizer=optimizer)
+        super().__init__(
+            freq, discrim, 
+            optimizer=optimizer,
+            scheduler=scheduler
+        )
         self.discrim = discrim
-
-    @property
-    def requires_keys(self) -> Set[str]:
-        return {"obs", "nxt", "lbl"}
         
-    @property
-    def truncate_envs(self) -> bool:
-        return True
-    
     def loss(self, data: MultiTensor) -> LossInfo:
         prob = self.discrim((data.obs, data.nxt))
         loss = binary_cross_entropy(prob, data.lbl)

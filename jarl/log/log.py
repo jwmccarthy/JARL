@@ -12,7 +12,7 @@ class Progress:
     def __init__(
         self, 
         total: int, 
-        width: int = 32,
+        width: int = 40,
         ratio: float = 0.65, 
         chars = LightArcBox
     ) -> None:
