@@ -107,15 +107,17 @@ class TrainGraph:
     def update(self, data: MultiTensor) -> Dict[str, Any]:
         data = self.active_dep(data)
 
+        # sample batches w/in epochs
         for batch in self.sampler.sample(data):
             batch_info = {}
             for update in self.update_queue:
                 batch_info |= update(batch)
 
+        # update learning rates
         for update in self.update_queue:
             if update.scheduler:
                 update.scheduler.step()
 
-        self.update_queue = []  # reset update queue
+        self.update_queue = []
         
         return batch_info
