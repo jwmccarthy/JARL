@@ -54,7 +54,6 @@ def make_env(env_id):
         env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
         env = FireResetEnv(env)
-        env = ClipRewardEnv(env)
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayScaleObservation(env)
         env = gym.wrappers.FrameStack(env, 4)

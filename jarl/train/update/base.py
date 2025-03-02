@@ -29,7 +29,7 @@ class ModuleUpdate(ABC):
 
 class GradientUpdate(ModuleUpdate, ABC):
 
-    _requires_keys: Set[str] = set()
+    _requires_keys: Set[str]
 
     def __init__(
         self, 

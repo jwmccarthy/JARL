@@ -58,26 +58,26 @@ class TrainLoop:
             # store data
             self.buffer.store(trs)
 
-            if "final_info" in infos:
-                for info in infos["final_info"]:
-                    if info and "episode" in info:
-                        reward = info["episode"]["r"]
-                        length = info["episode"]["l"]
-                        rews.append(reward)
-                        lens.append(length)
-                        if reward > max_rew:
-                            max_rew = reward
-                        if length > max_len:
-                            max_len = length
+            # if "final_info" in infos:
+            #     for info in infos["final_info"]:
+            #         if info and "episode" in info:
+            #             reward = info["episode"]["r"]
+            #             length = info["episode"]["l"]
+            #             rews.append(reward)
+            #             lens.append(length)
+            #             if reward > max_rew:
+            #                 max_rew = reward
+            #             if length > max_len:
+            #                 max_len = length
 
-            log.update(episode=dict(
-                reward=np.mean(rews[-50:]),
-                length=np.mean(lens[-50:]),
-                max_reward=max_rew,
-                max_length=max_len,
-                global_t=(t+1)*self.env.n_envs,
-                time=time.time() - start
-            ))
+            # log.update(episode=dict(
+            #     reward=np.mean(rews[-50:]),
+            #     length=np.mean(lens[-50:]),
+            #     max_reward=max_rew,
+            #     max_length=max_len,
+            #     global_t=(t+1)*self.env.n_envs,
+            #     time=time.time() - start
+            # ))
 
             # run blocks
             for graph in self.ready(t):

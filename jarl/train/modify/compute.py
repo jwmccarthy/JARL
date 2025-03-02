@@ -10,16 +10,11 @@ from jarl.train.modify.base import DataModifier
 
 class ComputeValues(DataModifier):
 
+    _requires_keys = {"obs", "nxt"}
+    _produces_keys = {"val", "next_val"}
+
     def __init__(self, critic: Critic) -> None:
         self.critic = critic
-
-    @property
-    def requires_keys(self) -> Set[str]:
-        return {"obs"} # assume default buffer input
-
-    @property
-    def produces_keys(self) -> Set[str]:
-        return {"val", "next_val"}
 
     @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:
@@ -30,16 +25,11 @@ class ComputeValues(DataModifier):
 
 class ComputeLogProbs(DataModifier):
 
+    _requires_keys = {"obs", "act"}
+    _produces_keys = {"lgp"}
+
     def __init__(self, policy: Policy) -> None:
         self.policy = policy
-
-    @property
-    def requires_keys(self) -> Set[str]:
-        return {"obs", "act"}
-
-    @property
-    def produces_keys(self) -> Set[str]:
-        return {"lgp"}
 
     @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:
@@ -49,6 +39,9 @@ class ComputeLogProbs(DataModifier):
 
 class ComputeAdvantages(DataModifier):
 
+    _requires_keys = {"rew", "val", "next_val"}
+    _produces_keys = {"adv"}
+
     def __init__(
         self, 
         gamma: float = 0.99, 
@@ -56,14 +49,6 @@ class ComputeAdvantages(DataModifier):
     ) -> None:
         self.gamma = gamma
         self.lmbda = lmbda
-
-    @property
-    def requires_keys(self) -> Set[str]:
-        return {"rew", "val", "next_val"}
-
-    @property
-    def produces_keys(self) -> Set[str]:
-        return {"adv"}
 
     @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:
@@ -87,13 +72,8 @@ class ComputeAdvantages(DataModifier):
 
 class ComputeReturns(DataModifier):
 
-    @property
-    def requires_keys(self) -> Set[str]:
-        return {"val", "adv"}
-
-    @property
-    def produces_keys(self) -> Set[str]:
-        return {"ret"}
+    _requires_keys = {"val", "adv"}
+    _produces_keys = {"ret"}
 
     @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:
@@ -103,13 +83,8 @@ class ComputeReturns(DataModifier):
 
 class SignRewards(DataModifier):
 
-    @property
-    def requires_keys(self) -> Set[str]:
-        return {"rew"}
-
-    @property
-    def produces_keys(self) -> Set[str]:
-        return {"rew"}
+    _requires_keys = {"rew"}
+    _produces_keys = {"rew"}
 
     @th.no_grad()
     def __call__(self, data: MultiTensor) -> MultiTensor:

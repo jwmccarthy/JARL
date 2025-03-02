@@ -6,15 +6,16 @@ from jarl.data.core import MultiTensor
 
 class DataModifier(ABC):
 
-    @property
-    @abstractmethod
-    def requires_keys(self) -> Set[str]:
-        ...
+    _requires_keys: Set[str]
+    _produces_keys: Set[str]
 
     @property
-    @abstractmethod
+    def requires_keys(self) -> Set[str]:
+        return self._requires_keys
+    
+    @property
     def produces_keys(self) -> Set[str]:
-        ...
+        return self._produces_keys
 
     @abstractmethod
     def __call__(self, data: MultiTensor) -> MultiTensor:
