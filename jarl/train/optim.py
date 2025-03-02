@@ -19,6 +19,7 @@ class Optimizer:
 
     def build(self, modules):
         self.params = chain(*[m.parameters() for m in modules])
+        self.params = dict.fromkeys(list(self.params))
         self.optimizer = self.optimizer(self.params, **self.op_kwargs)
         return self
     

@@ -89,7 +89,8 @@ class TrainGraph:
     def init_schedulers(self, steps: int) -> None:
         for update in self.updates:
             up_step = steps // update.freq
-            update.scheduler.start(up_step)
+            if update.scheduler:
+                update.scheduler.start(up_step)
     
     def ready(self, t: int) -> bool:
         mod_idx = 0

@@ -29,21 +29,38 @@ from jarl.train.modify.compute import (
     SignRewards
 )
 
-from stable_baselines3.common.atari_wrappers import (
+from stable_baselines3.common.atari_wrappers import (  # isort:skip
+    ClipRewardEnv,
     EpisodicLifeEnv,
-    FireResetEnv
+    FireResetEnv,
+    MaxAndSkipEnv,
+    NoopResetEnv,
 )
 
+# def make_env(id, render=False):
+#     def _make_env():
+#         env = gym.make(id, frameskip=1, render_mode="human" if render else None)
+#         env = FireResetEnv(env)
+#         env = gym.wrappers.AtariPreprocessing(env, frame_skip=4)
+#         env = gym.wrappers.FrameStack(env, 4)
+#         return env
+#     return _make_env
 
-def make_env(id, render=False):
-    def _make_env():
-        env = gym.make(id, frameskip=1, render_mode="human" if render else None)
+def make_env(env_id):
+    def thunk():
+        env = gym.make(env_id)
+        env = gym.wrappers.RecordEpisodeStatistics(env)
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        env = EpisodicLifeEnv(env)
         env = FireResetEnv(env)
-        # env = EpisodicLifeEnv(env)
-        env = gym.wrappers.AtariPreprocessing(env, frame_skip=4)
+        env = ClipRewardEnv(env)
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayScaleObservation(env)
         env = gym.wrappers.FrameStack(env, 4)
         return env
-    return _make_env
+
+    return thunk
 
 env = TorchGymEnv(make_env("BreakoutNoFrameskip-v4"), 8, device="cuda")
 
@@ -72,7 +89,7 @@ ppo = (
     TrainGraph(
         PPOUpdate(128, policy, critic, clip=0.1,
                   optimizer=Optimizer(Adam, lr=2.5e-4),
-                  scheduler=Scheduler(LinearLR, start_factor=1, end_factor=0)),
+                  scheduler=Scheduler(LinearLR, start_factor=1.0, end_factor=0.0)),
         BatchSampler(256, num_epoch=4)
     )
     .add_modifier(ComputeAdvantages())
@@ -86,7 +103,7 @@ ppo = (
 buffer = LazyBuffer(128).to("cuda")
 
 loop = TrainLoop(env, buffer, policy, graphs=[ppo])
-loop.run(int(1e6))
+loop.run(int(1.25e6))
 
 
 # env = TorchGymEnv(make_env("ALE/Breakout-v5", render=True), 1, device="cuda")

@@ -38,8 +38,8 @@ class TrainLoop:
         obs = self.env.reset()
         log = self.logger(steps)
         rews, lens = [], []
-        curr_rews = self.env.n_envs * [0]
-        curr_lens = self.env.n_envs * [0]
+        global_t = 0
+        max_rew, max_len = -np.inf, -np.inf
 
         for g in self.graphs:
             g.init_schedulers(steps)
@@ -51,22 +51,30 @@ class TrainLoop:
             with th.no_grad():
                 act = self.policy(obs)
             trs = DotDict(obs=obs, act=act)
-            trs, obs = self.env.step(trs=trs)
+            trs, obs, infos = self.env.step(trs=trs)
+
+            global_t += self.env.n_envs
 
             # store data
             self.buffer.store(trs)
 
-            for i in range(self.env.n_envs):
-                curr_rews[i] += trs.rew[i].item()
-                curr_lens[i] += 1
-                if trs.don[i]:
-                    rews.append(curr_rews[i])
-                    lens.append(curr_lens[i])
-                    curr_rews[i] = curr_lens[i] = 0
+            if "final_info" in infos:
+                for info in infos["final_info"]:
+                    if info and "episode" in info:
+                        reward = info["episode"]["r"]
+                        length = info["episode"]["l"]
+                        rews.append(reward)
+                        lens.append(length)
+                        if reward > max_rew:
+                            max_rew = reward
+                        if length > max_len:
+                            max_len = length
 
             log.update(episode=dict(
-                reward=np.mean(rews[-25:]),
-                length=np.mean(lens[-25:]),
+                reward=np.mean(rews[-50:]),
+                length=np.mean(lens[-50:]),
+                max_reward=max_rew,
+                max_length=max_len,
                 global_t=(t+1)*self.env.n_envs,
                 time=time.time() - start
             ))

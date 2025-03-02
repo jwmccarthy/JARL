@@ -53,7 +53,7 @@ class TorchGymEnv:
         return self.env.step(action)
     
     def step(self, trs: DotDict, stop: bool = False) -> GymStepOutput:     
-        obs, rew, trm, trc, nxt = self._step(trs.act)
+        obs, rew, trm, trc, nxt, info = self._step(trs.act)
 
         # step output to tensors
         trs.rew = th.as_tensor(rew, dtype=th.float32)
@@ -62,7 +62,7 @@ class TorchGymEnv:
         trs.nxt = self.vec_obs_space(nxt)  # next observation (pre-reset)
         nxt = self.vec_obs_space(obs)      # next observation (post-reset)
 
-        return trs, nxt
+        return trs, nxt, info
     
     def close(self) -> None:
         self.env.close()
