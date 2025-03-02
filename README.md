@@ -11,10 +11,10 @@ A ```MultiTensor``` is just a Python dictionary of PyTorch tensors (with dot att
 ```python
 import torch as th
 
-data = MultiTensor(dict(
+data = MultiTensor(
     a=th.rand((5,3)),
     b=th.rand((5,)),
-))
+)
 
 all(data[:3].a == data.a[:3])  # => True
 ```
