@@ -6,7 +6,7 @@ JARL utilizes a few core proprietary objects...
 
 ### ```MultiTensor```
 
-A ```MultiTensor``` is just a Python dictionary of PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
+A ```MultiTensor``` is subclasses the Python dictionary and contains same-size PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
 
 ```python
 import torch as th
