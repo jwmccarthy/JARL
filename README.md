@@ -47,7 +47,7 @@ graph = (
     .add_modifier(ComputeValues(critic))
     .add_modifier(ComputeAdvantages())
     .add_modifier(ComputeReturns())
-    .add_modifier(ComputeLogProbs())
+    .add_modifier(ComputeLogProbs(policy))
 )
 ```
 
