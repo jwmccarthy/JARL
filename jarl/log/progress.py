@@ -1,3 +1,4 @@
+from typing import Generator
 from colorama import Fore, Style
 from collections import defaultdict
 
@@ -130,14 +131,14 @@ class Progress:
 
         return table_str
 
-    def update(self, **kwargs):
+    def update(self, **kwargs) -> None:
         for key, val in kwargs.items():
             self.stats[key].update(val)
 
-    def close(self):
+    def close(self) -> None:
         self.stats = {}
 
-    def __iter__(self):
+    def __iter__(self) -> Generator[int, None, None]:
         for t in range(self.total):
             tab = self._build_table()
             bar = self._build_bar((t + 1) / self.total)

@@ -1,5 +1,6 @@
 import torch as th
 
+from collections import defaultdict
 from multimethod import multimethod
 from typing import (
     Dict, Self, Any, Iterable, Mapping, Tuple, List
@@ -41,7 +42,6 @@ class MultiTensor(dict):
     def __len__(self) -> int:
         return self.shape[0]
     
-    @multimethod
     def __getattr__(self, key: str) -> th.Tensor:
         if key in self:
             return self[key]
@@ -134,3 +134,50 @@ class MultiTensor(dict):
     def flatten(self, start_dim: int, end_dim: int) -> th.Tensor:
         data = {k: v.flatten(start_dim, end_dim) for k, v in self.items()}
         return MultiTensor(**data, device=self.device)
+    
+
+class MultiList(defaultdict):
+
+    def __init__(self, **kwargs: Dict[str, List]) -> None:
+        super().__init__(list)
+        for key, val in kwargs.items():
+            self[key] = val
+
+    def __getattr__(self, key: str) -> List:
+        if key in self:
+            return self[key]
+        return super().__getattribute__(key)
+
+    @multimethod
+    def __setattr__(self, key: str, val: List) -> None:
+        super().__setitem__(key, val)
+
+    @multimethod
+    def __setattr__(self, key: str, val: Any) -> None:
+        super().__setattr__(key, val)
+
+    @multimethod
+    def __getitem__(self, idx: str) -> List:
+        return super().__getitem__(idx)
+
+    @multimethod
+    def __getitem__(self, idx: int) -> DotDict:
+        return DotDict(**{k: v[idx] for k, v in self.items()})
+    
+    @multimethod
+    def __getitem__(self, idx: slice) -> Self:
+        return MultiList(**{k: v[idx] for k, v in self.items()})
+    
+    @multimethod
+    def __setitem__(self, idx: str, data: List | "MultiList") -> None:
+        super().__setitem__(idx, data)
+    
+    @multimethod
+    def __setitem__(self, idx: Index, data: Mapping[str, Any]) -> Self:
+        for key, val in data.items():
+            self[key][idx] = val
+
+    def append(self, data: Mapping[str, Any]) -> Self:
+        for key, val in data.items():
+            self[key].append(val)
+        return self

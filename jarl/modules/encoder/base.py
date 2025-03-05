@@ -3,7 +3,7 @@ import torch.nn as nn
 from typing import Self
 from abc import ABC, abstractmethod
 
-from jarl.envs.vec import TorchGymEnv
+from jarl.envs.env import SyncEnv
 
 
 class Encoder(nn.Module, ABC):
@@ -14,5 +14,5 @@ class Encoder(nn.Module, ABC):
     def __init__(self) -> None:
         super().__init__()
 
-    def build(self, env: TorchGymEnv) -> Self:
+    def build(self, env: SyncEnv) -> Self:
         self.built = True

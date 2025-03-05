@@ -3,13 +3,13 @@ import torch.nn as nn
 
 from typing import Self, Tuple
 
-from jarl.envs.vec import TorchGymEnv
+from jarl.envs.env import SyncEnv
 from jarl.modules.encoder.base import Encoder
 
 
 class FlattenEncoder(Encoder):
     
-    def build(self, env: TorchGymEnv) -> Self:
+    def build(self, env: SyncEnv) -> Self:
         super().build(env)
         self.start_dim = -len(env.obs_space.shape)
         self.feats = env.obs_space.flat_dim
@@ -21,7 +21,7 @@ class FlattenEncoder(Encoder):
 
 class StackObsEncoder(Encoder):
 
-    def build(self, env: TorchGymEnv) -> Self:
+    def build(self, env: SyncEnv) -> Self:
         super().build(env)
         self.feats = env.obs_space.flat_dim * 2
         return self
@@ -32,7 +32,7 @@ class StackObsEncoder(Encoder):
 
 class StackObsActEncoder(Encoder):
 
-    def build(self, env: TorchGymEnv) -> Self:
+    def build(self, env: SyncEnv) -> Self:
         super().build(env)
         self.feats = env.obs_space.flat_dim + env.act_space.numel
         return self

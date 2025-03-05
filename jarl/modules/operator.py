@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from typing import Self
 
-from jarl.envs.vec import TorchGymEnv
+from jarl.envs.env import SyncEnv
 from jarl.modules.encoder.core import Encoder
 from jarl.modules.base import CompositeNet
 
@@ -20,7 +20,7 @@ class Critic(CompositeNet):
     ) -> None:
         super().__init__(head, body, foot)
 
-    def build(self, env: TorchGymEnv) -> Self:
+    def build(self, env: SyncEnv) -> Self:
         return super().build(env)
     
     def forward(self, x: th.Tensor) -> th.Tensor:

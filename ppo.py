@@ -4,7 +4,7 @@ from torch.optim.lr_scheduler import LinearLR
 
 import gymnasium as gym
 
-from jarl.envs.vec import TorchGymEnv
+from jarl.envs.env import SyncEnv
 
 from jarl.data.buffer import LazyBuffer
 
@@ -30,38 +30,29 @@ from jarl.train.modify.compute import (
 )
 
 from stable_baselines3.common.atari_wrappers import (  # isort:skip
-    ClipRewardEnv,
     EpisodicLifeEnv,
     FireResetEnv,
     MaxAndSkipEnv,
     NoopResetEnv,
 )
 
-# def make_env(id, render=False):
-#     def _make_env():
-#         env = gym.make(id, frameskip=1, render_mode="human" if render else None)
-#         env = FireResetEnv(env)
-#         env = gym.wrappers.AtariPreprocessing(env, frame_skip=4)
-#         env = gym.wrappers.FrameStack(env, 4)
-#         return env
-#     return _make_env
 
 def make_env(env_id):
     def thunk():
-        env = gym.make(env_id)
+        env = gym.make(env_id, frameskip=1)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
         env = FireResetEnv(env)
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayScaleObservation(env)
-        env = gym.wrappers.FrameStack(env, 4)
+        env = gym.wrappers.GrayscaleObservation(env)
+        env = gym.wrappers.FrameStackObservation(env, 4)
         return env
 
     return thunk
 
-env = TorchGymEnv(make_env("BreakoutNoFrameskip-v4"), 8, device="cuda")
+env = SyncEnv(make_env("ale_py:ALE/Breakout-v5"), 8, device="cuda")
 
 policy = CategoricalPolicy(
     head=ImageEncoder(CNN(
@@ -105,7 +96,7 @@ loop = TrainLoop(env, buffer, policy, graphs=[ppo])
 loop.run(int(1.25e6))
 
 
-# env = TorchGymEnv(make_env("ALE/Breakout-v5", render=True), 1, device="cuda")
+# env = SyncEnv(make_env("ALE/Breakout-v5", render=True), 1, device="cuda")
 
 # N = 65536
 

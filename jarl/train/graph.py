@@ -88,9 +88,9 @@ class TrainGraph:
     
     def init_schedulers(self, steps: int) -> None:
         for update in self.updates:
-            up_step = steps // update.freq
+            up_steps = steps // update.freq
             if update.scheduler:
-                update.scheduler.start(up_step)
+                update.scheduler.start(up_steps)
     
     def ready(self, t: int) -> bool:
         mod_idx = 0
@@ -109,10 +109,11 @@ class TrainGraph:
         data = self.active_dep(data)
 
         # sample batches w/in epochs
+        batch_info = defaultdict(dict)
         for batch in self.sampler.sample(data):
-            batch_info = {}
             for update in self.update_queue:
-                batch_info |= update(batch)
+                name = update.__class__.__name__
+                batch_info[name] |= update(batch)
 
         # update learning rates
         for update in self.update_queue:

@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from typing import Self
 
-from jarl.envs.vec import TorchGymEnv
+from jarl.envs.env import SyncEnv
 from jarl.modules.encoder.base import Encoder
     
 
@@ -13,7 +13,7 @@ class ImageEncoder(Encoder):
         super().__init__()
         self.cnn = cnn
 
-    def build(self, env: TorchGymEnv) -> Self:
+    def build(self, env: SyncEnv) -> Self:
         super().build(env)
         self.cnn.build(env.obs_space.shape[0]).to(env.device)
         self.feats = len(self(env.obs_space.sample()))
