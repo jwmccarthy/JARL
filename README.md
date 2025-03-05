@@ -6,15 +6,15 @@ JARL utilizes a few core proprietary objects...
 
 ### ```MultiTensor```
 
-A ```MultiTensor``` is just a Python dictionary of PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
+A ```MultiTensor``` is subclasses the Python dictionary and contains same-size PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
 
 ```python
 import torch as th
 
-data = MultiTensor(dict(
+data = MultiTensor(
     a=th.rand((5,3)),
     b=th.rand((5,)),
-))
+)
 
 all(data[:3].a == data.a[:3])  # => True
 ```
@@ -47,7 +47,7 @@ graph = (
     .add_modifier(ComputeValues(critic))
     .add_modifier(ComputeAdvantages())
     .add_modifier(ComputeReturns())
-    .add_modifier(ComputeLogProbs())
+    .add_modifier(ComputeLogProbs(policy))
 )
 ```
 
