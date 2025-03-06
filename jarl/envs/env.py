@@ -2,38 +2,11 @@ import numpy as np
 import torch as th
 
 import gymnasium as gym
-from typing import Tuple, Callable, Any
+from typing import Callable, Any
 
 from jarl.data.dict import DotDict
 from jarl.data.types import Device, EnvOutput
 from jarl.envs.space import torch_space
-
-
-class TorchEnv:
-
-    def __init__(self, env: gym.Env, device: Device = "cpu") -> None:
-        self.env = env
-        self.device = device
-
-        # wrap spaces for tensor spec
-        self.obs_space = torch_space(
-            self.env.observation_space, device)
-        self.act_space = torch_space(
-            self.env.action_space, device)
-
-    def seed(self, seed: int) -> None:
-        self.env.seed(seed)
-
-    def reset(self) -> Tuple[th.Tensor, dict]:
-        obs, _ = self.env.reset()
-        return th.as_tensor(obs).to(self.device)
-    
-    def step(self, act: th.Tensor) -> Tuple[th.Tensor, ...]:
-        act = act.detach().cpu().numpy()
-        *exp, _ = self.env.step(act)
-        obs, rew, trm, trc = [
-            th.as_tensor(x).to(self.device) for x in exp]
-        return obs, rew, trm, trc
 
 
 class SyncEnv:
@@ -46,29 +19,40 @@ class SyncEnv:
     ) -> None:
         self.n_envs = n_envs
         self.device = device
-        self.envs = [TorchEnv(env_func(), device) for _ in range(n_envs)]
-        self.obs_space = self.envs[0].obs_space
-        self.act_space = self.envs[0].act_space
+        self.envs = [env_func() for _ in range(n_envs)]
+        self.obs_space = torch_space(
+            self.envs[0].observation_space, device)
+        self.act_space = torch_space(
+            self.envs[0].action_space, device)
+
+        # storage for transition values
+        self.obs = np.empty((n_envs, *self.obs_space.shape),
+                            dtype=np.float32)
+        self.rew = np.empty((n_envs,), dtype=np.float32)
+        self.trc = np.empty((n_envs,), dtype=np.bool)
+        self.don = np.empty_like(self.trc)
+        self.nxt = np.empty_like(self.obs)
 
     def reset(self) -> th.Tensor:
-        obs = [env.reset() for env in self.envs]
-        return th.stack(obs)
+        obs = np.stack([env.reset()[0] for env in self.envs])
+        return th.as_tensor(obs).to(self.device)
     
     def step(self, trs: DotDict[str, th.Tensor]) -> EnvOutput:
-        act = trs.act  # get action from active transition
+        actions = trs.act.detach().cpu().numpy()
 
-        # stack transition from each env
-        exp = zip(*[env.step(a) for a, env in zip(act, self.envs)])
-        obs, rew, trm, trc = [th.stack(x) for x in exp]
-        don = th.logical_or(trm, trc)
+        # step environments
+        for i, (env, act) in enumerate(zip(self.envs, actions)):
+            obs, rew, trm, trc, _ = env.step(act)
+            self.obs[i] = obs
+            self.rew[i] = rew
+            self.trc[i] = trc
+            self.don[i] = trm | trc
+            self.nxt[i] = env.reset()[0] if self.don[i] else obs
 
-        # autoreset
-        nxt = obs.clone()
-        idx = don.nonzero(as_tuple=True)[0]
-        if idx.numel():
-            res = [self.envs[i].reset() for i in idx]
-            nxt[idx] = th.stack(res)
+        # convert to tensor and store in transition
+        trs.rew = th.tensor(self.rew, device=self.device)
+        trs.trc = th.tensor(self.trc, device=self.device)
+        trs.don = th.tensor(self.don, device=self.device)
+        trs.nxt = th.tensor(self.obs, device=self.device)
 
-        trs.update(nxt=obs, rew=rew, trc=trc, don=don)
-
-        return trs, nxt
+        return trs, th.tensor(self.nxt, device=self.device)

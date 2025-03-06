@@ -10,7 +10,6 @@ from jarl.data.buffer import LazyBuffer
 
 from jarl.modules.core import MLP, CNN
 from jarl.modules.operator import Critic
-from jarl.modules.utils import init_layer
 from jarl.modules.policy import CategoricalPolicy
 from jarl.modules.encoder.image import ImageEncoder
 
@@ -58,21 +57,14 @@ policy = CategoricalPolicy(
     head=ImageEncoder(CNN(
         dims=[32, 64, 64],
         kernel=[8, 4, 3],
-        stride=[4, 2, 1],
-        init_func=lambda x: init_layer(x)
+        stride=[4, 2, 1]
     ).append(nn.LazyLinear(512))),
-    body=MLP(
-        func=nn.ReLU, dims=[],
-        init_func=lambda x: init_layer(x, std=0.01)
-    )
+    body=MLP(func=nn.ReLU, dims=[])
 ).build(env).to("cuda")
 
 critic = Critic(
     head=policy.head,    
-    body=MLP(
-        func=nn.ReLU, dims=[],
-        init_func=lambda x: init_layer(x, std=1.0)
-    ),
+    body=MLP(func=nn.ReLU, dims=[]),
 ).build(env).to("cuda")
 
 ppo = (
