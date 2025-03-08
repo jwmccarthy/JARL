@@ -9,7 +9,7 @@ from jarl.data.buffer import Buffer
 from jarl.envs.env import SyncEnv
 from jarl.modules.policy import Policy
 from jarl.train.graph import TrainGraph
-from jarl.log.progress import Progress
+from jarl.log.logger import Logger
 
 
 class TrainLoop:
@@ -20,7 +20,7 @@ class TrainLoop:
         buffer: Buffer,
         policy: Policy,
         graphs: List[TrainGraph],
-        logger: Progress = Progress
+        logger: Logger = Logger()
     ) -> None:
         self.env = env
         self.buffer = buffer
@@ -32,16 +32,13 @@ class TrainLoop:
         return [g for g in self.graphs if g.ready(t)]
 
     def run(self, steps: int) -> None:
-        obs = self.env.reset()
-        log = self.logger(steps)
         global_t = 0
+        obs = self.env.reset()
 
         for g in self.graphs:
             g.init_schedulers(steps)
 
-        start_time = time.time()
-
-        for t in log:
+        for t in self.logger.progress(steps):
             # step environment
             with th.no_grad():
                 act = self.policy(obs)
@@ -50,20 +47,16 @@ class TrainLoop:
 
             global_t += self.env.n_envs
 
+            # track episode info
+            self.logger.episode(global_t, trs.pop("info"))
+
             # store data
             self.buffer.store(trs)
-
-            # log transition
-            # log.log_transition(trs)
-            log.update(time=dict(
-                steps=global_t,
-                elapsed=(time.time() - start_time) / 60
-            ))
 
             # run blocks
             for graph in self.ready(t):
                 data = self.buffer.serve()
                 info = graph.update(data)
-                log.update(**info)
+                self.logger.update(info)
 
-        return log
+        return self.policy

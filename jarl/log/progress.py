@@ -57,7 +57,7 @@ class Progress:
         table_str = ""
 
         # section header
-        header = section[:int_width]
+        header = section[:int_width].title()
         table_str += (
             self.chars.VERTICAL
             + header.ljust(int_width)

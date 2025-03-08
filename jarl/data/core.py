@@ -181,3 +181,8 @@ class MultiList(defaultdict):
         for key, val in data.items():
             self[key].append(val)
         return self
+    
+    def extend(self, data: Mapping[str, List[Any]]) -> Self:
+        for key, val in data.items():
+            self[key].extend(val)
+        return self

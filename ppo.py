@@ -42,7 +42,7 @@ def make_env(env_id):
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
-        env = EpisodicLifeEnv(env)
+        # env = EpisodicLifeEnv(env)
         env = FireResetEnv(env)
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayscaleObservation(env)
