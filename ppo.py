@@ -12,6 +12,7 @@ from jarl.modules.core import MLP, CNN
 from jarl.modules.operator import Critic
 from jarl.modules.policy import CategoricalPolicy
 from jarl.modules.encoder.image import ImageEncoder
+from jarl.modules.encoder.core import FlattenEncoder
 
 from jarl.train.update.ppo import PPOUpdate
 from jarl.train.sample.batch import BatchSampler
@@ -28,6 +29,8 @@ from jarl.train.modify.compute import (
     SignRewards
 )
 
+from stable_baselines3.common.atari_wrappers import MaxAndSkipEnv
+
 from jarl.envs.wrappers import (
     NoopResetWrapper,
     MaxAndSkipWrapper,
@@ -38,37 +41,34 @@ from jarl.envs.wrappers import (
 )
 
 
-eid = "ale_py:ALE/Breakout-v5"
+# eid = "ale_py:ALE/Breakout-v5"
+eid = "CartPole-v1"
 env = gym.make(eid)
 env = TorchEnv(env, device="cuda")
-env = NoopResetWrapper(env, noop_max=30)
-env = MaxAndSkipWrapper(env, skip=4)
-env = EpisodicLifeWrapper(env)
-env = FireResetWrapper(env)
-env = ImageTransformWrapper(env)
-env = FrameStackWrapper(env, 4)
-env = SyncEnv(env, 8, device="cuda")
+# env = NoopResetWrapper(env, noop_max=30)
+# env = MaxAndSkipWrapper(env, skip=4)
+# env = EpisodicLifeWrapper(env)
+# env = FireResetWrapper(env)
+# env = ImageTransformWrapper(env)
+# env = FrameStackWrapper(env, 4)
+env = SyncEnv(env, 4, device="cuda")
 
 policy = CategoricalPolicy(
-    head=ImageEncoder(CNN(
-        dims=[32, 64, 64],
-        kernel=[8, 4, 3],
-        stride=[4, 2, 1]
-    ).append(nn.LazyLinear(512))),
-    body=MLP(func=nn.ReLU, dims=[])
+    head=FlattenEncoder(),
+    body=MLP()
 ).build(env).to("cuda")
 
 critic = Critic(
     head=policy.head,    
-    body=MLP(func=nn.ReLU, dims=[]),
+    body=MLP(),
 ).build(env).to("cuda")
 
 ppo = (
     TrainGraph(
-        PPOUpdate(128, policy, critic, clip=0.1,
-                  optimizer=Optimizer(Adam, lr=2.5e-4),
-                  scheduler=Scheduler(LinearLR, start_factor=1.0, end_factor=0.0)),
-        BatchSampler(256, num_epoch=4)
+        PPOUpdate(128, policy, critic, clip=0.2,
+                  optimizer=Optimizer(Adam, lr=2.5e-4)),
+                #   scheduler=Scheduler(LinearLR, start_factor=1.0, end_factor=0.0)),
+        BatchSampler(128, num_epoch=4)
     )
     .add_modifier(ComputeAdvantages())
     .add_modifier(ComputeLogProbs(policy))

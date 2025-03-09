@@ -1,3 +1,4 @@
+import time
 from typing import Generator
 from colorama import Fore, Style
 from collections import defaultdict
@@ -139,6 +140,8 @@ class Progress:
         self.stats = {}
 
     def __iter__(self) -> Generator[int, None, None]:
+        start_time = time.time()
+
         for t in range(self.total):
             tab = self._build_table()
             bar = self._build_bar((t + 1) / self.total)
@@ -151,6 +154,7 @@ class Progress:
             if self.lines > 2:
                 print(tab)
             print(bar, flush=True)
+            print(f"Elapsed: {time.time() - start_time:.2f}s", flush=True)
 
             yield t
 

@@ -109,21 +109,22 @@ class MaxAndSkipWrapper(TorchEnvWrapper):
     
 
 class FrameStackWrapper(TorchEnvWrapper):
+
     def __init__(self, env: TorchEnv, n: int = 4) -> None:
         super().__init__(env)
         self.n = n
         self.obs_space = ConcatSpace(self.obs_space, n, device=self.device)
-        self.frames = th.zeros(self.obs_space.shape, device=self.device)  # Ensure GPU storage
+        self.frames = th.zeros(self.obs_space.shape, device=self.device)
 
     def step(self, act: np.ndarray) -> EnvStep:
         obs, rew, trc, don, nxt, info = self.env.step(act)
-        self.frames = th.roll(self.frames, shifts=-1, dims=0)  # Faster shift
+        self.frames = th.roll(self.frames, shifts=-1, dims=0)
         self.frames[-1] = obs
         return self.frames.clone(), rew, trc, don, nxt, info
     
     def reset(self) -> th.Tensor:
         obs = self.env.reset()
-        self.frames.fill_(0)  # Fast reset instead of slice copy
+        self.frames.fill_(0)
         self.frames[-1] = obs
         return self.frames.clone()
     
