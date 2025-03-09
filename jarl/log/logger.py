@@ -18,7 +18,7 @@ class Logger:
             self.progress_bar.update(episode={key: stat_mean})
         self.progress_bar.update(episode=dict(global_t=t))
 
-    def update(self, t: int, info: Mapping[str, Any]) -> None:
+    def update(self, info: Mapping[str, Any]) -> None:
         self.progress_bar.update(**info)
 
     def progress(self, steps: int, **kwargs) -> Generator[int, None, None]:

@@ -4,7 +4,7 @@ from torch.optim.lr_scheduler import LinearLR
 
 import gymnasium as gym
 
-from jarl.envs.env import SyncEnv
+from jarl.envs.gym import SyncEnv, TorchEnv
 
 from jarl.data.buffer import LazyBuffer
 
@@ -28,30 +28,26 @@ from jarl.train.modify.compute import (
     SignRewards
 )
 
-from stable_baselines3.common.atari_wrappers import (  # isort:skip
-    EpisodicLifeEnv,
-    FireResetEnv,
-    MaxAndSkipEnv,
-    NoopResetEnv,
+from jarl.envs.wrappers import (
+    NoopResetWrapper,
+    MaxAndSkipWrapper,
+    EpisodicLifeWrapper,
+    FireResetWrapper,
+    ImageTransformWrapper,
+    FrameStackWrapper
 )
 
 
-def make_env(env_id):
-    def thunk():
-        env = gym.make(env_id, frameskip=1)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = NoopResetEnv(env, noop_max=30)
-        env = MaxAndSkipEnv(env, skip=4)
-        # env = EpisodicLifeEnv(env)
-        env = FireResetEnv(env)
-        env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env)
-        env = gym.wrappers.FrameStackObservation(env, 4)
-        return env
-
-    return thunk
-
-env = SyncEnv(make_env("ale_py:ALE/Breakout-v5"), 8, device="cuda")
+eid = "ale_py:ALE/Breakout-v5"
+env = gym.make(eid)
+env = TorchEnv(env, device="cuda")
+env = NoopResetWrapper(env, noop_max=30)
+env = MaxAndSkipWrapper(env, skip=4)
+env = EpisodicLifeWrapper(env)
+env = FireResetWrapper(env)
+env = ImageTransformWrapper(env)
+env = FrameStackWrapper(env, 4)
+env = SyncEnv(env, 8, device="cuda")
 
 policy = CategoricalPolicy(
     head=ImageEncoder(CNN(

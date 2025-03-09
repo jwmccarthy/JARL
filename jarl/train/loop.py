@@ -6,7 +6,7 @@ from typing import List
 from jarl.data.dict import DotDict
 from jarl.data.buffer import Buffer
 
-from jarl.envs.env import SyncEnv
+from jarl.envs.gym import SyncEnv
 from jarl.modules.policy import Policy
 from jarl.train.graph import TrainGraph
 from jarl.log.logger import Logger

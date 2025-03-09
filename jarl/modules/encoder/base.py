@@ -3,7 +3,7 @@ import torch.nn as nn
 from typing import Self
 from abc import ABC, abstractmethod
 
-from jarl.envs.env import SyncEnv
+from jarl.envs.gym import SyncEnv
 
 
 class Encoder(nn.Module, ABC):

@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from typing import Self
 
-from jarl.envs.env import SyncEnv
+from jarl.envs.gym import SyncEnv
 from jarl.modules.encoder.core import Encoder
 from jarl.modules.base import CompositeNet
 

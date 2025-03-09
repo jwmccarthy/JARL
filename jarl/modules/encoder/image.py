@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from typing import Self
 
-from jarl.envs.env import SyncEnv
+from jarl.envs.gym import SyncEnv
 from jarl.modules.encoder.base import Encoder
     
 
@@ -15,12 +15,11 @@ class ImageEncoder(Encoder):
 
     def build(self, env: SyncEnv) -> Self:
         super().build(env)
-        self.cnn.build(env.obs_space.shape[0]).to(env.device)
+        self.cnn.build(env.obs_space.shape[-3]).to(env.device)
         self.feats = len(self(env.obs_space.sample()))
         return self
     
     def forward(self, x: th.Tensor) -> th.Tensor:
         batch_dim = x.shape[:-3]
         x = x.view(-1, *x.shape[-3:])
-        x = self.cnn(x / 255.0)
-        return x.view(*batch_dim, -1)
+        return self.cnn(x).view(*batch_dim, -1)

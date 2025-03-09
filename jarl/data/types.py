@@ -37,4 +37,5 @@ Device = str | th.device
 # computations
 LossInfo = Tuple[th.Tensor, Dict[str, Any]]
 SampleOutput = Generator[Iterable, None, None] | Tuple[Iterable, ...]
+EnvStep = Tuple[Tuple[th.Tensor, ...], Dict[str, Any]]
 EnvOutput = Tuple[DotDict[str, th.Tensor], th.Tensor]

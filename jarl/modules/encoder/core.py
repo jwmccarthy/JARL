@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from typing import Self, Tuple
 
-from jarl.envs.env import SyncEnv
+from jarl.envs.gym import SyncEnv
 from jarl.modules.encoder.base import Encoder
 
 

@@ -12,7 +12,7 @@ from functools import lru_cache
 from abc import ABC, abstractmethod
 
 from jarl.data.types import Device
-from jarl.envs.env import SyncEnv
+from jarl.envs.gym import SyncEnv
 from jarl.modules.encoder.core import Encoder
 from jarl.modules.base import CompositeNet
 

@@ -2,7 +2,7 @@ import numpy as np
 import torch as th
 
 import gymnasium as gym
-from typing import Tuple, Callable, Any, Self
+from typing import Tuple, Self
 
 from jarl.data.dict import DotDict
 from jarl.data.types import Device, EnvOutput
@@ -13,11 +13,10 @@ class TorchEnv:
 
     def __init__(
         self, 
-        env_id: str, 
-        device: Device = "cpu",
-        **kwargs: dict
+        env: gym.Env | Self, 
+        device: Device = "cpu"
     ) -> None:
-        self.env = gym.make(env_id, **kwargs)
+        self.env = env
         self.device = device
 
         # wrap spaces for tensor spec
@@ -29,12 +28,16 @@ class TorchEnv:
         # track episode stats
         self.reward = self.length = 0
 
+    @property
+    def unwrapped(self) -> gym.Env:
+        return self.env.unwrapped
+
     def seed(self, seed: int) -> None:
         self.env.seed(seed)
 
     def reset(self) -> Tuple[th.Tensor, dict]:
         obs, _ = self.env.reset()
-        return th.as_tensor(obs).to(self.device)
+        return th.tensor(obs, device=self.device)
 
     def step(self, act: np.ndarray) -> Tuple[th.Tensor, ...]:
         *exp, _ = self.env.step(act)
@@ -62,32 +65,30 @@ class SyncEnv:
 
     def __init__(
         self, 
-        env_id: str, 
+        env: TorchEnv, 
         n_envs: int = 1, 
-        device: Device = "cpu",
-        **kwargs: dict
+        device: Device = "cpu"
     ) -> None:
         self.n_envs = n_envs
         self.device = device
         self.rews, self.lens = [], []
-        self.envs = [TorchEnv(env_id, **kwargs) for _ in range(n_envs)]
-        
-        # wrap obs/act space
+        self.envs = [env for _ in range(n_envs)]
+
         self.obs_space = self.envs[0].obs_space
         self.act_space = self.envs[0].act_space
 
         # storage for transition values
         self.exp = DotDict(
-            nxt=th.empty((self.n_envs, *self.obs_space.shape)),
-            rew=th.empty((self.n_envs,)),
-            trc=th.empty((self.n_envs,), dtype=bool),
-            don=th.empty((self.n_envs,), dtype=bool)
+            nxt=th.empty((self.n_envs, *self.obs_space.shape), 
+                         device=self.device),
+            rew=th.empty((self.n_envs,), device=self.device),
+            trc=th.empty((self.n_envs,), device=self.device, dtype=bool),
+            don=th.empty((self.n_envs,), device=self.device, dtype=bool)
         )
         self.obs = th.empty_like(self.exp.nxt)
 
     def reset(self) -> th.Tensor:
-        obs = np.stack([env.reset()[0] for env in self.envs])
-        return th.tensor(obs, device=self.device)
+        return th.stack([env.reset() for env in self.envs])
     
     def step(self, trs: DotDict[str, th.Tensor]) -> EnvOutput:
         lens, rews = [], []
