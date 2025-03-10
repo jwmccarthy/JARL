@@ -1,6 +1,6 @@
 import numpy as np
 
-from typing import Any, Mapping, Generator
+from typing import List, Any, Mapping, Generator
 
 from jarl.data.core import MultiList
 from jarl.log.progress import Progress
@@ -11,12 +11,13 @@ class Logger:
     def __init__(self):
         self.data = MultiList(episode=MultiList())
 
-    def episode(self, t: int, info: Mapping[str, Any]) -> None:
+    def episode(self, t: int, info: Mapping[str, List[Any]]) -> None:
         self.data.episode.extend(info)
+        new_info = dict(global_t=t)
         for key, val in self.data.episode.items():
-            stat_mean = np.mean(val[-100:])
-            self.progress_bar.update(episode={key: stat_mean})
-        self.progress_bar.update(episode=dict(global_t=t))
+            if info[key]:
+                new_info |= {key: np.mean(val[-100:])}
+        self.progress_bar.update(episode=new_info)
 
     def update(self, info: Mapping[str, Any]) -> None:
         self.progress_bar.update(**info)

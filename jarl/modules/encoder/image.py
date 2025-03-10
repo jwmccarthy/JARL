@@ -21,5 +21,5 @@ class ImageEncoder(Encoder):
     
     def forward(self, x: th.Tensor) -> th.Tensor:
         batch_dim = x.shape[:-3]
-        x = x.view(-1, *x.shape[-3:])
+        x = x.view(-1, *x.shape[-3:]) / 255.0
         return self.cnn(x).view(*batch_dim, -1)

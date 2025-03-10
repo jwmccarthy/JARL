@@ -1,18 +1,19 @@
+import numpy as np
 import torch.nn as nn
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LinearLR
 
 import gymnasium as gym
 
-from jarl.envs.gym import SyncEnv, TorchEnv
+from jarl.envs.gym import SyncEnv
 
 from jarl.data.buffer import LazyBuffer
 
 from jarl.modules.core import MLP, CNN
+from jarl.modules.utils import init_layer
 from jarl.modules.operator import Critic
 from jarl.modules.policy import CategoricalPolicy
 from jarl.modules.encoder.image import ImageEncoder
-from jarl.modules.encoder.core import FlattenEncoder
 
 from jarl.train.update.ppo import PPOUpdate
 from jarl.train.sample.batch import BatchSampler
@@ -29,46 +30,62 @@ from jarl.train.modify.compute import (
     SignRewards
 )
 
-from stable_baselines3.common.atari_wrappers import MaxAndSkipEnv
+from jarl.envs.wrappers import EpisodeStatsEnv
 
-from jarl.envs.wrappers import (
-    NoopResetWrapper,
-    MaxAndSkipWrapper,
-    EpisodicLifeWrapper,
-    FireResetWrapper,
-    ImageTransformWrapper,
-    FrameStackWrapper
+from stable_baselines3.common.atari_wrappers import (
+    EpisodicLifeEnv,
+    FireResetEnv,
+    MaxAndSkipEnv,
+    NoopResetEnv,
 )
 
 
-# eid = "ale_py:ALE/Breakout-v5"
-eid = "CartPole-v1"
-env = gym.make(eid)
-env = TorchEnv(env, device="cuda")
-# env = NoopResetWrapper(env, noop_max=30)
-# env = MaxAndSkipWrapper(env, skip=4)
-# env = EpisodicLifeWrapper(env)
-# env = FireResetWrapper(env)
-# env = ImageTransformWrapper(env)
-# env = FrameStackWrapper(env, 4)
-env = SyncEnv(env, 4, device="cuda")
+def make_env(env_id):
+    def thunk():
+        env = gym.make(env_id, frameskip=1)
+        env = EpisodeStatsEnv(env)
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        env = EpisodicLifeEnv(env)
+        env = FireResetEnv(env)
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayscaleObservation(env)
+        env = gym.wrappers.FrameStackObservation(env, 4)
+        return env
+
+    return thunk
+
+env = SyncEnv(make_env("ale_py:BreakoutNoFrameskip-v4"), 8, device="cuda")
 
 policy = CategoricalPolicy(
-    head=FlattenEncoder(),
-    body=MLP()
+    head=ImageEncoder(CNN(
+        dims=[32, 64, 64],
+        kernel=[8, 4, 3],
+        stride=[4, 2, 1],
+        init_func=lambda x: init_layer(x)
+    ).append(nn.LazyLinear(512))),
+    body=MLP(
+        func=nn.ReLU, 
+        dims=[], 
+        init_func=lambda x: init_layer(x, std=0.01)
+    ),
 ).build(env).to("cuda")
 
 critic = Critic(
     head=policy.head,    
-    body=MLP(),
+    body=MLP(
+        func=nn.ReLU, 
+        dims=[],
+        init_func=lambda x: init_layer(x, std=1)
+    )
 ).build(env).to("cuda")
 
 ppo = (
     TrainGraph(
-        PPOUpdate(128, policy, critic, clip=0.2,
-                  optimizer=Optimizer(Adam, lr=2.5e-4)),
-                #   scheduler=Scheduler(LinearLR, start_factor=1.0, end_factor=0.0)),
-        BatchSampler(128, num_epoch=4)
+        PPOUpdate(128, policy, critic, clip=0.1,
+                  optimizer=Optimizer(Adam, lr=2.5e-4),
+                  scheduler=Scheduler(LinearLR, start_factor=1.0, end_factor=0.0)),
+        BatchSampler(256, num_epoch=4)
     )
     .add_modifier(ComputeAdvantages())
     .add_modifier(ComputeLogProbs(policy))

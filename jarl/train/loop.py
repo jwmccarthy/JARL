@@ -1,3 +1,4 @@
+import numpy as np
 import torch as th
 
 import time
@@ -38,17 +39,19 @@ class TrainLoop:
         for g in self.graphs:
             g.init_schedulers(steps)
 
+        rews = []
+
         for t in self.logger.progress(steps):
             # step environment
             with th.no_grad():
                 act = self.policy(obs)
             trs = DotDict(obs=obs, act=act)
-            trs, obs = self.env.step(trs=trs)
+            trs, obs, info = self.env.step(trs=trs)
 
             global_t += self.env.n_envs
 
             # track episode info
-            self.logger.episode(global_t, trs.pop("info"))
+            self.logger.episode(global_t, info)
 
             # store data
             self.buffer.store(trs)
