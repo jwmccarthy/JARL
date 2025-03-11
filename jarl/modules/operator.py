@@ -35,9 +35,12 @@ class QFunction(Critic):
         self, 
         head: Encoder, 
         body: nn.Module,
-        foot: nn.Module = None
+        foot: nn.Module = None,
+        acts: bool = True
     ) -> None:
         super().__init__(head, body, foot)
+        # if acts is true, put ConcatEncoder as top of head
+        # and allow composition of encoders
 
     def build(self, env: SyncEnv) -> Self:
         return super().build(env)

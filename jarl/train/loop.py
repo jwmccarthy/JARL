@@ -22,14 +22,14 @@ class TrainLoop:
         policy: Policy,
         graphs: List[TrainGraph],
         logger: Logger = Logger(),
-        burnin: int = 0
+        warmup: int = 0
     ) -> None:
         self.env = env
         self.buffer = buffer
         self.policy = policy
         self.logger = logger
         self.graphs = graphs
-        self.burnin = burnin
+        self.warmup = warmup
 
     def ready(self, t: int) -> List[TrainGraph]:
         return [g for g in self.graphs if g.ready(t)]
@@ -57,7 +57,7 @@ class TrainLoop:
             self.buffer.store(trs)
 
             # burn-in
-            if t < self.burnin:
+            if t < self.warmup:
                 continue
 
             # run blocks
