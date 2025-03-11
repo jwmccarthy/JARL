@@ -25,3 +25,22 @@ class Critic(CompositeNet):
     
     def forward(self, x: th.Tensor) -> th.Tensor:
         return super().forward(x).squeeze(-1)
+    
+
+class QFunction(Critic):
+
+    model: nn.Module
+
+    def __init__(
+        self, 
+        head: Encoder, 
+        body: nn.Module,
+        foot: nn.Module = None
+    ) -> None:
+        super().__init__(head, body, foot)
+
+    def build(self, env: SyncEnv) -> Self:
+        return super().build(env)
+    
+    def forward(self, x: th.Tensor) -> th.Tensor:
+        return super().forward(x).squeeze(-1)

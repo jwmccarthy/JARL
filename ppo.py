@@ -26,9 +26,9 @@ from jarl.train.modify.compute import (
     ComputeValues,
     ComputeLogProbs,
     ComputeAdvantages,
-    ComputeReturns,
-    SignRewards
+    ComputeReturns
 )
+from jarl.train.modify.reward import SignRewards
 
 from jarl.envs.wrappers import EpisodeStatsEnv
 

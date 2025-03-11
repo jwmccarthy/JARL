@@ -103,3 +103,26 @@ class DiagonalGaussianPolicy(Policy):
     def to(self, device: Device) -> Self:
         self.covmat = self.covmat.to(device)
         return super().to(device)
+    
+
+class NoisyContinuousPolicy(Policy):
+
+    def __init__(
+        self, 
+        head: nn.Module, 
+        body: nn.Module,
+        foot: nn.Module = None,
+        scale: float = 1.0
+    ) -> None:
+        super().__init__(head, body, foot)
+        self.scale = scale
+
+    def dist(self, obs: th.Tensor) -> Distribution:
+        raise NotImplementedError("dist() not supported")
+    
+    def action(self, obs: th.Tensor) -> th.Tensor:
+        return self.model(obs)
+    
+    def sample(self, obs: th.Tensor) -> th.Tensor:
+        act = self.model(obs)
+        return act + th.randn_like(act) * self.scale

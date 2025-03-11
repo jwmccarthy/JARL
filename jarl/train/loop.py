@@ -21,13 +21,15 @@ class TrainLoop:
         buffer: Buffer,
         policy: Policy,
         graphs: List[TrainGraph],
-        logger: Logger = Logger()
+        logger: Logger = Logger(),
+        burnin: int = 0
     ) -> None:
         self.env = env
         self.buffer = buffer
         self.policy = policy
         self.logger = logger
         self.graphs = graphs
+        self.burnin = burnin
 
     def ready(self, t: int) -> List[TrainGraph]:
         return [g for g in self.graphs if g.ready(t)]
@@ -36,13 +38,11 @@ class TrainLoop:
         global_t = 0
         obs = self.env.reset()
 
+        # prepare lr schedulers
         for g in self.graphs:
             g.init_schedulers(steps)
 
-        rews = []
-
         for t in self.logger.progress(steps):
-            # step environment
             with th.no_grad():
                 act = self.policy(obs)
             trs = DotDict(obs=obs, act=act)
@@ -55,6 +55,10 @@ class TrainLoop:
 
             # store data
             self.buffer.store(trs)
+
+            # burn-in
+            if t < self.burnin:
+                continue
 
             # run blocks
             for graph in self.ready(t):
