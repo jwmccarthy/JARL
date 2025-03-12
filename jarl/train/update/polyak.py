@@ -13,7 +13,8 @@ class PolyakUpdate(ModuleUpdate):
         freq: int,
         source: nn.Module,
         target: nn.Module,
-        tau: float = 0.005) -> None:
+        tau: float = 0.005
+    ) -> None:
         super().__init__(freq)
         self.source = source
         self.target = target
