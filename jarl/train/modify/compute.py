@@ -4,7 +4,7 @@ from typing import Set
 
 from jarl.data.core import MultiTensor
 from jarl.modules.policy import Policy
-from jarl.modules.operator import Critic
+from jarl.modules.operator import ValueFunction
 from jarl.train.modify.base import DataModifier
 
 
@@ -13,7 +13,7 @@ class ComputeValues(DataModifier):
     _requires_keys = {"obs", "nxt"}
     _produces_keys = {"val", "next_val"}
 
-    def __init__(self, critic: Critic) -> None:
+    def __init__(self, critic: ValueFunction) -> None:
         self.critic = critic
 
     @th.no_grad()

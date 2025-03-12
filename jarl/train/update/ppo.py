@@ -4,12 +4,12 @@ from jarl.data.types import LossInfo
 from jarl.data.core import MultiTensor
 
 from jarl.modules.policy import Policy
-from jarl.modules.operator import Critic
+from jarl.modules.operator import ValueFunction
 
 from jarl.train.optim import Optimizer, Scheduler
 from jarl.train.update.base import GradientUpdate
 from jarl.train.update.policy import ClippedPolicyUpdate
-from jarl.train.update.critic import MSECriticUpdate
+from jarl.train.update.critic import MSEValueFunctionUpdate
 
 
 class PPOUpdate(GradientUpdate):
@@ -20,7 +20,7 @@ class PPOUpdate(GradientUpdate):
         self, 
         freq: int,
         policy: Policy, 
-        critic: Critic,
+        critic: ValueFunction,
         optimizer: Optimizer = None,
         scheduler: Scheduler = None,
         clip: float = 0.2,
@@ -44,7 +44,7 @@ class PPOUpdate(GradientUpdate):
         self.policy_loss = ClippedPolicyUpdate(
             freq, policy, clip=clip, ent_coef=ent_coef
         ).loss
-        self.critic_loss = MSECriticUpdate(
+        self.critic_loss = MSEValueFunctionUpdate(
             freq, critic, clip=clip, val_coef=val_coef
         ).loss
     

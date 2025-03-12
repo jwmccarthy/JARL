@@ -11,7 +11,7 @@ from jarl.data.buffer import LazyBuffer
 
 from jarl.modules.core import MLP, CNN
 from jarl.modules.utils import init_layer
-from jarl.modules.operator import Critic
+from jarl.modules.operator import ValueFunction
 from jarl.modules.policy import CategoricalPolicy
 from jarl.modules.encoder.image import ImageEncoder
 
@@ -71,7 +71,7 @@ policy = CategoricalPolicy(
     ),
 ).build(env).to("cuda")
 
-critic = Critic(
+critic = ValueFunction(
     head=policy.head,    
     body=MLP(
         func=nn.ReLU, 

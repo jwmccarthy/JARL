@@ -19,8 +19,6 @@ from jarl.modules.base import CompositeNet
 
 class Policy(CompositeNet, ABC):
 
-    model: nn.Module
-
     def __init__(
         self, 
         head: Encoder, 

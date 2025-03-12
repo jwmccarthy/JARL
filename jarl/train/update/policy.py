@@ -1,13 +1,38 @@
 import torch as th
-import torch.nn.functional as F
-
-from typing import Set
 
 from jarl.data.types import LossInfo
 from jarl.modules.policy import Policy
+from jarl.modules.types import QFunction
 from jarl.data.core import MultiTensor
 from jarl.train.optim import Optimizer, Scheduler
 from jarl.train.update.base import GradientUpdate
+
+
+class MaxQPolicyUpdate(GradientUpdate):
+
+    _requires_keys = {"obs"}
+
+    def __init__(
+        self, 
+        freq: int,
+        policy: Policy, 
+        q_func: QFunction,
+        optimizer: Optimizer = None,
+        scheduler: Scheduler = None,
+        gamma: float = 0.99
+    ) -> None:
+        super().__init__(
+            freq, policy, 
+            optimizer=optimizer,
+            scheduler=scheduler
+        )
+        self.policy = policy
+        self.q_func = q_func
+        self.gamma = gamma
+
+    def loss(self, data: MultiTensor) -> LossInfo:
+        loss = -self.q_func(data.obs, self.policy(data.obs)).mean()
+        return loss, dict(policy_loss=loss.item())
 
 
 class ClippedPolicyUpdate(GradientUpdate):
