@@ -37,7 +37,7 @@ class SyncEnv:
 
     def reset(self) -> th.Tensor:
         obs = np.stack([env.reset()[0] for env in self.envs])
-        return th.tensor(obs, device=self.device)
+        return th.tensor(obs, device=self.device).to(th.float32)
     
     def step(self, trs: DotDict[str, th.Tensor]) -> EnvOutput:
         actions = trs.act.detach().cpu().numpy()

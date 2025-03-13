@@ -9,7 +9,7 @@ from jarl.modules.operator import ValueFunction
 from jarl.train.optim import Optimizer, Scheduler
 from jarl.train.update.base import GradientUpdate
 from jarl.train.update.policy import ClippedPolicyUpdate
-from jarl.train.update.critic import MSEValueFunctionUpdate
+from jarl.train.update.operator import MSEValueFunctionUpdate
 
 
 class PPOUpdate(GradientUpdate):

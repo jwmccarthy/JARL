@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.distributions import (
     Distribution,
     Categorical,
-    MultivariateNormal
+    Normal
 )
 
 from typing import Self
@@ -85,22 +85,27 @@ class DiagonalGaussianPolicy(Policy):
 
     def build(self, env: SyncEnv) -> Self:
         super().build(env)
-        self.covmat = th.eye(env.act_space.flat_dim)
+        log_std = th.zeros((env.act_space.flat_dim))
+        self.log_std = nn.Parameter(log_std)
         return self
     
     @lru_cache(maxsize=1)
     def dist(self, obs: th.Tensor) -> Distribution:
-        return MultivariateNormal(self.model(obs), self.covmat)
+        loc = self.model(obs)
+        std = self.log_std.expand_as(loc).exp()
+        return Normal(loc, std)
+    
+    def logprob(self, obs: th.Tensor, act: th.Tensor) -> th.Tensor:
+        return super().logprob(obs, act).sum(-1)
+    
+    def entropy(self, obs: th.Tensor) -> th.Tensor:
+        return super().entropy(obs).sum(-1)
     
     def action(self, obs: th.Tensor) -> th.Tensor:
         return self.model(obs)
     
     def sample(self, obs: th.Tensor) -> th.Tensor:
         return self.dist(obs).sample()
-    
-    def to(self, device: Device) -> Self:
-        self.covmat = self.covmat.to(device)
-        return super().to(device)
     
 
 class NoisyContinuousPolicy(Policy):
