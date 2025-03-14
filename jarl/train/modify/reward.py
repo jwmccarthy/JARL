@@ -15,7 +15,7 @@ class SignRewards(DataModifier):
         return data
     
 
-class NormalizedRewards(DataModifier):
+class NormalizeRewards(DataModifier):
 
     _requires_keys = {"rew", "don", "trc"}
     _produces_keys = {"rew"}
@@ -32,16 +32,18 @@ class NormalizedRewards(DataModifier):
         reward = th.zeros_like(data.rew)
 
         # discount rew & calculate moving mean
-        rew, mean, squares = 0, 0
-        discnt = self.gamma * nontrm
-        for i in reversed(range(len(data.rew))):
-            n = len(data.rew) - i
+        rew = mean = std = 0
+        discnt = self.gamma * nondon
+        for i in range(len(data.rew)):
+            m, n = i + 1, i + 2
             reward[i] = rew = data.rew[i] + discnt[i] * rew
 
             # moving mean & std
-            mean = mean * (n - 1) / n + mean / n if nondon[i] else rew
-            squares = th.pow(rew, 2) + squares * nondon[i]
-            stddev[i] = (squares - th.pow(mean, 2) + 1e-8).sqrt()
+            delta = rew - mean
+            mean = mean + 1 / n * delta if nondon[i] else rew
+            stddev[i] = std = (n * std + th.square(delta) * m / n) / n
 
         # normalize reward
-        reward /= stddev
+        data.rew = reward / stddev
+
+        return data
