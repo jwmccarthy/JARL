@@ -61,6 +61,7 @@ class ContinuousQFunction(CompositeNet):
         self.head = self.head if self.head.built else self.head.build(env)
         self.body.build(self.head.feats + env.act_space.numel, 1)
         self.foot = self.foot if self.foot else nn.Identity()
+        return self
 
     def forward(self, obs: th.Tensor, act: th.Tensor) -> th.Tensor:
         feats = th.cat((self.head(obs), act), dim=-1)

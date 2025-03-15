@@ -1,7 +1,6 @@
 import torch as th
 import torch.nn.functional as F
-
-from typing import Set
+from torch.optim import Adam
 
 from jarl.data.types import LossInfo
 from jarl.data.core import MultiTensor
@@ -20,7 +19,7 @@ class MSEValueFunctionUpdate(GradientUpdate):
         self, 
         freq: int, 
         critic: ValueFunction,
-        optimizer: Optimizer = None, 
+        optimizer: Optimizer = Optimizer(Adam), 
         scheduler: Scheduler = None,
         clip: float = None,
         val_coef: float = 0.5
@@ -56,7 +55,7 @@ class MSBEUpdate(GradientUpdate):
         q_func: QFunction,
         q_targ: QFunction,
         p_targ: Policy,
-        optimizer: Optimizer = None,
+        optimizer: Optimizer = Optimizer(Adam),
         scheduler: Scheduler = None,
         gamma: float = 0.99
     ) -> None:
@@ -71,8 +70,16 @@ class MSBEUpdate(GradientUpdate):
         self.gamma = gamma
 
     def loss(self, data: MultiTensor) -> LossInfo:
-        nontrm = (~data.don | data.trc).float()
-        target = data.rew + self.gamma * nontrm \
-                          * self.q_targ(data.nxt, self.p_targ(data.nxt))
-        loss = F.mse_loss(self.q_func(data.obs, data.act), target)
-        return loss, dict(q_loss=loss.item())
+        nondon = (~data.don).float()
+
+        with th.no_grad():
+            next_q = self.q_targ(data.nxt, self.p_targ.action(data.nxt))
+            target = data.rew + self.gamma * nondon * next_q
+            
+        q_vals = self.q_func(data.obs, data.act)
+        loss = F.mse_loss(q_vals, target)
+
+        return loss, dict(
+            q_loss=loss.item(),
+            q_vals=q_vals.mean().item(),
+        )

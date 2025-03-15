@@ -1,7 +1,6 @@
 import torch.nn as nn
+from torch.optim import Adam
 from torch.nn.functional import binary_cross_entropy
-
-from typing import Set
 
 from jarl.data.types import LossInfo
 from jarl.data.core import MultiTensor
@@ -17,7 +16,7 @@ class GAIFOUpdate(GradientUpdate):
         self, 
         freq: int, 
         discrim: nn.Module,
-        optimizer: Optimizer = None,
+        optimizer: Optimizer = Optimizer(Adam),
         scheduler: Scheduler = None,
     ) -> None:
         super().__init__(

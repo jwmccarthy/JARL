@@ -32,6 +32,8 @@ class TrainLoop:
         self.warmup = warmup
 
     def ready(self, t: int) -> List[TrainGraph]:
+        if t < self.warmup:
+            return []
         return [g for g in self.graphs if g.ready(t)]
 
     def run(self, steps: int) -> None:
@@ -43,8 +45,11 @@ class TrainLoop:
             g.init_schedulers(steps)
 
         for t in self.logger.progress(steps):
-            with th.no_grad():
-                act = self.policy(obs)
+            if t < self.warmup:
+                act = th.stack([self.env.act_space.sample() for _ in range(self.env.n_envs)])
+            else:
+                with th.no_grad():
+                    act = self.policy(obs)
             trs = DotDict(obs=obs, act=act)
             trs, obs, info = self.env.step(trs=trs)
 
@@ -55,10 +60,6 @@ class TrainLoop:
 
             # store data
             self.buffer.store(trs)
-
-            # burn-in
-            if t < self.warmup:
-                continue
 
             # run blocks
             for graph in self.ready(t):

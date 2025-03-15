@@ -1,4 +1,5 @@
 import torch as th
+from torch.optim import Adam
 
 from jarl.data.types import LossInfo
 from jarl.modules.policy import Policy
@@ -17,7 +18,7 @@ class MaxQPolicyUpdate(GradientUpdate):
         freq: int,
         policy: Policy, 
         q_func: QFunction,
-        optimizer: Optimizer = None,
+        optimizer: Optimizer = Optimizer(Adam),
         scheduler: Scheduler = None,
         gamma: float = 0.99
     ) -> None:
@@ -31,7 +32,8 @@ class MaxQPolicyUpdate(GradientUpdate):
         self.gamma = gamma
 
     def loss(self, data: MultiTensor) -> LossInfo:
-        loss = -self.q_func(data.obs, self.policy(data.obs)).mean()
+        acts = self.policy.action(data.obs)
+        loss = -self.q_func(data.obs, acts).mean()
         return loss, dict(policy_loss=loss.item())
 
 
@@ -43,7 +45,7 @@ class ClippedPolicyUpdate(GradientUpdate):
         self, 
         freq: int,
         policy: Policy, 
-        optimizer: Optimizer = None,
+        optimizer: Optimizer = Optimizer(Adam),
         scheduler: Scheduler = None,
         clip: float = 0.2,
         ent_coef: float = 0.01

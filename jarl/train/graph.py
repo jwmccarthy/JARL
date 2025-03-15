@@ -89,7 +89,7 @@ class TrainGraph:
     def init_schedulers(self, steps: int) -> None:
         for update in self.updates:
             up_steps = steps // update.freq
-            if update.scheduler:
+            if hasattr(update, "scheduler") and update.scheduler:
                 update.scheduler.start(up_steps)
     
     def ready(self, t: int) -> bool:
@@ -117,7 +117,7 @@ class TrainGraph:
 
         # update learning rates
         for update in self.update_queue:
-            if update.scheduler:
+            if hasattr(update, "scheduler") and update.scheduler:
                 update.scheduler.step()
 
         self.update_queue = []

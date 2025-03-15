@@ -1,5 +1,6 @@
 import torch as th
 import torch.nn as nn
+from torch.optim import Adam
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Set, List
@@ -35,7 +36,7 @@ class GradientUpdate(ModuleUpdate, ABC):
         self, 
         freq: int, 
         modules: nn.Module | List[nn.Module],
-        optimizer: Optimizer = None,
+        optimizer: Optimizer = Optimizer(Adam),
         scheduler: Scheduler = None
     ) -> None:
         super().__init__(freq)

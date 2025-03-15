@@ -1,4 +1,4 @@
-from typing import Set
+from torch.optim import Adam
 
 from jarl.data.types import LossInfo
 from jarl.data.core import MultiTensor
@@ -21,7 +21,7 @@ class PPOUpdate(GradientUpdate):
         freq: int,
         policy: Policy, 
         critic: ValueFunction,
-        optimizer: Optimizer = None,
+        optimizer: Optimizer = Optimizer(Adam),
         scheduler: Scheduler = None,
         clip: float = 0.2,
         val_coef: float = 0.5,

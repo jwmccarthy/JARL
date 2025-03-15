@@ -115,7 +115,7 @@ class NoisyContinuousPolicy(Policy):
         head: nn.Module, 
         body: nn.Module,
         foot: nn.Module = None,
-        scale: float = 1.0
+        scale: float = 0.1
     ) -> None:
         super().__init__(head, body, foot)
         self.scale = scale

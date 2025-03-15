@@ -1,5 +1,6 @@
 import torch as th
 import torch.nn as nn
+from torch.optim import Adam
 from torch.nn.functional import binary_cross_entropy
 
 from typing import Set
@@ -18,7 +19,7 @@ class BCEDiscriminatorUpdate(GradientUpdate):
         self, 
         freq: int, 
         model: nn.Module,
-        optimizer: Optimizer = None,
+        optimizer: Optimizer = Optimizer(Adam),
         scheduler: Scheduler = None
     ) -> None:
         super().__init__(
