@@ -1,6 +1,6 @@
 import torch as th
 
-from jarl.data.core import MultiTensor
+from jarl.data.multi import MultiTensor
 from jarl.train.modify.base import DataModifier
 
 

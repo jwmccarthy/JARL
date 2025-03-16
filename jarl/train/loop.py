@@ -43,13 +43,13 @@ class TrainLoop:
         # prepare lr schedulers
         for g in self.graphs:
             g.init_schedulers(steps)
-
+        
         for t in self.logger.progress(steps):
             if t < self.warmup:
                 act = th.stack([self.env.act_space.sample() for _ in range(self.env.n_envs)])
             else:
                 with th.no_grad():
-                    act = self.policy(obs)
+                    act = self.policy(obs.to("cuda"))
             trs = DotDict(obs=obs, act=act)
             trs, obs, info = self.env.step(trs=trs)
 

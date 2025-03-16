@@ -1,7 +1,7 @@
 from typing import Set
 from abc import ABC, abstractmethod
 
-from jarl.data.core import MultiTensor
+from jarl.data.multi import MultiTensor
 
 
 class DataModifier(ABC):

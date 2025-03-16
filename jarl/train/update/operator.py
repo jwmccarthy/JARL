@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 
 from jarl.data.types import LossInfo
-from jarl.data.core import MultiTensor
+from jarl.data.multi import MultiTensor
 from jarl.modules.policy import Policy
 from jarl.modules.types import QFunction
 from jarl.modules.operator import ValueFunction
@@ -75,7 +75,7 @@ class MSBEUpdate(GradientUpdate):
         with th.no_grad():
             next_q = self.q_targ(data.nxt, self.p_targ.action(data.nxt))
             target = data.rew + self.gamma * nondon * next_q
-            
+
         q_vals = self.q_func(data.obs, data.act)
         loss = F.mse_loss(q_vals, target)
 

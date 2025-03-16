@@ -2,7 +2,7 @@ import numpy as np
 
 from typing import List, Any, Mapping, Generator
 
-from jarl.data.core import MultiList
+from jarl.data.multi import MultiList
 from jarl.log.progress import Progress
 
 

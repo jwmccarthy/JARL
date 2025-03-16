@@ -1,6 +1,7 @@
 import torch as th
 
-from jarl.data.core import MultiTensor
+from jarl.data.types import Device
+from jarl.data.multi import MultiTensor
 from jarl.data.types import SampleOutput
 from jarl.train.sample.base import Sampler
 
@@ -11,12 +12,14 @@ class BatchSampler(Sampler):
         self, 
         batch_size: int,
         num_epoch: int = 1,
-        num_batch: int = None 
+        num_batch: int = None,
+        device: Device = "cpu" 
     ) -> None:
         super().__init__()
         self.batch_size = batch_size
         self.num_epoch = num_epoch
         self.num_batch = num_batch
+        self.device = device
 
     def sample(self, data: MultiTensor) -> SampleOutput:
         data = data.flatten(0, 1)  # flatten data into single-row tensors
@@ -30,4 +33,4 @@ class BatchSampler(Sampler):
 
             # yield slices of input data
             for i in range(0, num_batch * self.batch_size, self.batch_size):
-                yield data[idx[i : i + self.batch_size]]
+                yield data[idx[i : i + self.batch_size]].to(self.device)

@@ -2,7 +2,7 @@ import torch as th
 
 from typing import Set
 
-from jarl.data.core import MultiTensor
+from jarl.data.multi import MultiTensor
 from jarl.modules.policy import Policy
 from jarl.modules.operator import ValueFunction
 from jarl.train.modify.base import DataModifier

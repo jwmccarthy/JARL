@@ -5,7 +5,7 @@ from typing import Self, Dict
 from abc import ABC, abstractmethod
 
 from jarl.data.types import Device
-from jarl.data.core import MultiTensor
+from jarl.data.multi import MultiTensor
 
 
 class Buffer(ABC):

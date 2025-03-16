@@ -3,7 +3,7 @@ import torch as th
 
 from typing import Set
 
-from jarl.data.core import MultiTensor
+from jarl.data.multi import MultiTensor
 from jarl.modules.discrim import Discriminator
 from jarl.train.modify.base import DataModifier
 

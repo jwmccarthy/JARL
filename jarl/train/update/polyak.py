@@ -5,7 +5,7 @@ from typing import Set
 
 from jarl.train.update.base import ModuleUpdate
 from jarl.data.types import LossInfo
-from jarl.data.core import MultiTensor
+from jarl.data.multi import MultiTensor
 
 
 class PolyakUpdate(ModuleUpdate):

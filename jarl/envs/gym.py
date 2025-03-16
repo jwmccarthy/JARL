@@ -14,18 +14,14 @@ class SyncEnv:
     def __init__(
         self, 
         env_func: Callable[[Any], gym.Env], 
-        n_envs: int = 1, 
-        device: Device = "cpu"
+        n_envs: int = 1
     ) -> None:
         self.n_envs = n_envs
-        self.device = device
         self.envs = [env_func() for _ in range(n_envs)]
 
         # wrap env spaces
-        self.obs_space = torch_space(
-            self.envs[0].observation_space, device)
-        self.act_space = torch_space(
-            self.envs[0].action_space, device)
+        self.obs_space = torch_space(self.envs[0].observation_space)
+        self.act_space = torch_space(self.envs[0].action_space)
 
         # storage for transition values
         self.obs = np.empty((n_envs, *self.obs_space.shape),
@@ -37,7 +33,7 @@ class SyncEnv:
 
     def reset(self) -> th.Tensor:
         obs = np.stack([env.reset()[0] for env in self.envs])
-        return th.tensor(obs, device=self.device).to(th.float32)
+        return th.tensor(obs).to(th.float32)
     
     def step(self, trs: DotDict[str, th.Tensor]) -> EnvOutput:
         actions = trs.act.detach().cpu().numpy()
@@ -59,13 +55,13 @@ class SyncEnv:
                 reward.append(info.rew)
                 length.append(info.len)
                 
-        # convert to tensor and store in transition
-        trs.rew = th.tensor(self.rew, device=self.device)
-        trs.trc = th.tensor(self.trc, device=self.device)
-        trs.don = th.tensor(self.don, device=self.device)
-        trs.nxt = th.tensor(self.obs, device=self.device)
+        # map transition to tensors
+        trs.rew = th.tensor(self.rew)
+        trs.trc = th.tensor(self.trc)
+        trs.don = th.tensor(self.don)
+        trs.nxt = th.tensor(self.obs)
 
         # episode statistics
         info = DotDict(reward=reward, length=length)
 
-        return trs, th.tensor(self.nxt, device=self.device), info
+        return trs, th.tensor(self.nxt), info

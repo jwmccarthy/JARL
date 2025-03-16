@@ -4,7 +4,7 @@ from torch.optim import Adam
 from jarl.data.types import LossInfo
 from jarl.modules.policy import Policy
 from jarl.modules.types import QFunction
-from jarl.data.core import MultiTensor
+from jarl.data.multi import MultiTensor
 from jarl.train.optim import Optimizer, Scheduler
 from jarl.train.update.base import GradientUpdate
 

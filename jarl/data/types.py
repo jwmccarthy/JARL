@@ -1,6 +1,5 @@
 import numpy as np
 import torch as th
-from torch import Tensor
 
 from typing import (
     Iterable,
@@ -9,6 +8,7 @@ from typing import (
     Any, 
     Generator
 )
+from numpy.typing import NDArray
 
 from jarl.data.dict import DotDict
 
@@ -31,7 +31,10 @@ torch_to_numpy = {
 }
 
 # composite types
-Index = int | slice | Iterable[int] | Tensor
+Index = int | slice | Iterable[int]
+NumpyIndex = Index | NDArray[int | bool]
+TorchIndex = Index | th.IntTensor | th.BoolTensor
+
 Device = str | th.device
 
 # computations

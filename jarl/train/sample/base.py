@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from jarl.data.core import MultiTensor
+from jarl.data.multi import MultiTensor
 from jarl.data.types import SampleOutput
 
 

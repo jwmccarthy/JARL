@@ -3,7 +3,7 @@ import torch as th
 from collections import defaultdict
 from typing import Any, Self, Dict, List
 
-from jarl.data.core import MultiTensor
+from jarl.data.multi import MultiTensor
 from jarl.train.update.base import ModuleUpdate
 from jarl.train.modify.base import DataModifier
 from jarl.train.sample.base import Sampler, IdentitySampler
