@@ -6,7 +6,7 @@ from typing import Callable, Any
 from numpy.typing import NDArray
 
 from jarl.data.dict import DotDict
-from jarl.data.types import Device, EnvOutput
+from jarl.data.types import EnvOutput
 from jarl.envs.space import torch_space
 
 

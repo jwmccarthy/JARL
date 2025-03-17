@@ -32,7 +32,7 @@ class TrainLoop:
         self.graphs = graphs
         self.warmup = warmup
     
-    def _get_action(self, obs: NDArray | th.Tensor, warmup=False) -> th.Tensor:
+    def _get_action(self, obs: NDArray | th.Tensor, warmup: bool = False) -> th.Tensor:
         if warmup:
             return self.env.sample()
         with th.no_grad():
@@ -41,8 +41,6 @@ class TrainLoop:
         return act
 
     def ready(self, t: int) -> List[TrainGraph]:
-        if t < self.warmup:
-            return []
         return [g for g in self.graphs if g.ready(t)]
 
     def run(self, steps: int) -> None:
@@ -62,12 +60,15 @@ class TrainLoop:
             exp, obs, info = self.env.step(act)
 
             global_t += self.env.n_envs
-            
+
             # track episode info
             self.logger.episode(global_t, info)
 
             # store data
             self.buffer.store(trs | exp)
+
+            if self.warmup:
+                continue
 
             # run blocks
             for graph in self.ready(t):

@@ -55,7 +55,7 @@ def make_env(env_id):
 
     return thunk
 
-env = SyncEnv(make_env("ale_py:BreakoutNoFrameskip-v4"), 8, device="cuda")
+env = SyncEnv(make_env("ale_py:ALE/Breakout-v5"), 8)
 
 policy = CategoricalPolicy(
     head=ImageEncoder(CNN(
@@ -95,7 +95,7 @@ ppo = (
     .compile()
 )
 
-buffer = LazyBuffer(128).to("cuda")
+buffer = LazyBuffer(128)
 
 loop = TrainLoop(env, buffer, policy, graphs=[ppo])
 loop.run(int(1.25e6))

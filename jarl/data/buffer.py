@@ -56,6 +56,5 @@ class LazyBuffer(Buffer):
             self._full = True
 
     def serve(self) -> MultiArray:
-        if self._full:
-            return self._data[:]
-        return self._data[:self._idx]
+        out = self._data[:] if self._full else self._data[:self._idx]
+        return MultiTensor.from_numpy(out, device="cuda")

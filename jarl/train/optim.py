@@ -10,7 +10,7 @@ class Optimizer:
     def __init__(
         self, 
         optimizer: opt.Optimizer, 
-        max_grad_norm: float = 0.5, 
+        max_grad_norm: float = None, 
         **op_kwargs
     ) -> None:
         self.optimizer = optimizer

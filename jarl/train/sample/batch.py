@@ -13,7 +13,7 @@ class BatchSampler(Sampler):
         batch_size: int,
         num_epoch: int = 1,
         num_batch: int = None,
-        convert: bool = True,
+        convert: bool = False,
         device: Device = "cpu" 
     ) -> None:
         super().__init__()
@@ -25,7 +25,7 @@ class BatchSampler(Sampler):
 
     def sample(self, data: MultiTensor) -> SampleOutput:
         data = data.flatten(0, 1)  # flatten data into single-row tensors
-
+        
         # calculate # of batches if not provided
         num_batch = self.num_batch or (len(data) // self.batch_size)
 

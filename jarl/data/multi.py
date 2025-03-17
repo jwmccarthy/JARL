@@ -140,7 +140,7 @@ class MultiTensor(MultiIterable):
     
     @__getitem__.register
     def _(self, idx: TorchIndex | th.Tensor) -> Self:
-        return self.__class__(**{k: v[idx] for k, v in self.items()})
+        return MultiTensor(**{k: v[idx] for k, v in self.items()}, device=self.device)
 
     @multimethod
     def __setitem__(self, key: str, val: Any) -> None:
