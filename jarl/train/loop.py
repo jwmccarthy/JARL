@@ -3,6 +3,7 @@ import torch as th
 
 import time
 from typing import List
+from numpy.typing import NDArray
 
 from jarl.data.dict import DotDict
 from jarl.data.buffer import Buffer
@@ -30,6 +31,14 @@ class TrainLoop:
         self.logger = logger
         self.graphs = graphs
         self.warmup = warmup
+    
+    def _get_action(self, obs: NDArray | th.Tensor, warmup=False) -> th.Tensor:
+        if warmup:
+            return self.env.sample()
+        with th.no_grad():
+            obs = th.tensor(obs, device=self.policy.device)
+            act = self.policy(obs)
+        return act
 
     def ready(self, t: int) -> List[TrainGraph]:
         if t < self.warmup:
@@ -45,21 +54,20 @@ class TrainLoop:
             g.init_schedulers(steps)
         
         for t in self.logger.progress(steps):
-            if t < self.warmup:
-                act = th.stack([self.env.act_space.sample() for _ in range(self.env.n_envs)])
-            else:
-                with th.no_grad():
-                    act = self.policy(obs.to("cuda"))
-            trs = DotDict(obs=obs, act=act)
-            trs, obs, info = self.env.step(trs=trs)
+            trs = dict(obs=obs)
+
+            # step environment
+            warmup = global_t < self.warmup
+            act = self._get_action(obs, warmup=warmup)
+            exp, obs, info = self.env.step(act)
 
             global_t += self.env.n_envs
-
+            
             # track episode info
             self.logger.episode(global_t, info)
 
             # store data
-            self.buffer.store(trs)
+            self.buffer.store(trs | exp)
 
             # run blocks
             for graph in self.ready(t):

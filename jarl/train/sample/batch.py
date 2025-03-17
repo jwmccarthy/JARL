@@ -13,12 +13,14 @@ class BatchSampler(Sampler):
         batch_size: int,
         num_epoch: int = 1,
         num_batch: int = None,
+        convert: bool = True,
         device: Device = "cpu" 
     ) -> None:
         super().__init__()
         self.batch_size = batch_size
         self.num_epoch = num_epoch
         self.num_batch = num_batch
+        self.convert = convert
         self.device = device
 
     def sample(self, data: MultiTensor) -> SampleOutput:
@@ -33,4 +35,7 @@ class BatchSampler(Sampler):
 
             # yield slices of input data
             for i in range(0, num_batch * self.batch_size, self.batch_size):
-                yield data[idx[i : i + self.batch_size]].to(self.device)
+                batch = data[idx[i : i + self.batch_size]]
+                if self.convert:
+                    batch = MultiTensor.from_numpy(batch, device=self.device)
+                yield batch

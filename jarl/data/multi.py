@@ -14,6 +14,7 @@ from jarl.data.utils import common_shape
 from jarl.data.types import Device, Index, NumpyIndex, TorchIndex
 
 
+# TODO: expand base class
 class MultiIterable(ABC, dict):
 
     def __init__(self, *args, **kwargs: Mapping[str, Iterable]) -> None:
@@ -59,7 +60,7 @@ class MultiArray(MultiIterable):
         return DotDict(**{k: v[idx] for k, v in self.items()})
     
     @__getitem__.register
-    def _(self, idx: NumpyIndex) -> Self:
+    def _(self, idx: NumpyIndex | th.Tensor) -> Self:
         return self.__class__(**{k: v[idx] for k, v in self.items()})
 
     @multimethod
@@ -75,6 +76,15 @@ class MultiArray(MultiIterable):
     def _(self, idx: NumpyIndex, data: Mapping[str, NDArray]) -> None:
         for key, val in data.items(): self[key][idx] = val
 
+    def flatten(self, start: int, end: int) -> Self:
+        data = {}
+        for key, val in self.items():
+            shape = val.shape
+            new_shape = shape[:start] + (-1,) + shape[end + 1:]
+            data[key] = val.reshape(new_shape)
+        return MultiArray(**data)
+
+
 
 class MultiTensor(MultiIterable):
 
@@ -89,7 +99,18 @@ class MultiTensor(MultiIterable):
         self._common = common_shape(self.values())
         assert not self.keys() or self._common, (
             "Arrays require at least one shared dimension")
+        for key, val in self.items():
+            self[key] = val.to(self._device)
     
+    @classmethod
+    def from_numpy(
+        cls, 
+        data: Mapping[str, NDArray], 
+        device: Device
+    ) -> Self:
+        data = {k: th.tensor(v) for k, v in data.items()}
+        return cls(**data, device=device)
+
     @property
     def shape(self) -> Tuple[int]:
         return self._common
@@ -157,8 +178,8 @@ class MultiTensor(MultiIterable):
 
         return self
     
-    def flatten(self, start_dim: int, end_dim: int) -> th.Tensor:
-        data = {k: v.flatten(start_dim, end_dim) for k, v in self.items()}
+    def flatten(self, start: int, end: int) -> th.Tensor:
+        data = {k: v.flatten(start, end) for k, v in self.items()}
         return MultiTensor(**data, device=self.device)
     
 

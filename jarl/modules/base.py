@@ -21,6 +21,11 @@ class CompositeNet(nn.Module):
         self.head = head
         self.body = body
         self.foot = foot
+        self.device = "cpu"
+
+    def to(self, device: str) -> Self:
+        self.device = device
+        return super().to(device)
 
     def build(self, env: SyncEnv, out_dim: int = 1) -> Self:
         self.head = self.head if self.head.built else self.head.build(env)

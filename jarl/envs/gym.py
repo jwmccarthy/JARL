@@ -3,6 +3,7 @@ import torch as th
 
 import gymnasium as gym
 from typing import Callable, Any
+from numpy.typing import NDArray
 
 from jarl.data.dict import DotDict
 from jarl.data.types import Device, EnvOutput
@@ -32,13 +33,13 @@ class SyncEnv:
         self.nxt = np.empty_like(self.obs)
 
     def reset(self) -> th.Tensor:
-        obs = np.stack([env.reset()[0] for env in self.envs])
-        return th.tensor(obs).to(th.float32)
+        obs = [env.reset()[0].astype(np.float32) for env in self.envs]
+        return np.stack(obs)
     
-    def step(self, trs: DotDict[str, th.Tensor]) -> EnvOutput:
-        actions = trs.act.detach().cpu().numpy()
-
-        # episode stats
+    def step(self, act: NDArray | th.Tensor) -> EnvOutput:
+        actions = act
+        if isinstance(act, th.Tensor):
+            actions = act.detach().cpu().numpy()
         reward, length = [], []   
 
         # step environments
@@ -55,13 +56,19 @@ class SyncEnv:
                 reward.append(info.rew)
                 length.append(info.len)
                 
-        # map transition to tensors
-        trs.rew = th.tensor(self.rew)
-        trs.trc = th.tensor(self.trc)
-        trs.don = th.tensor(self.don)
-        trs.nxt = th.tensor(self.obs)
+        trs = dict(
+            act=actions,
+            rew=self.rew,
+            trc=self.trc,
+            don=self.don,
+            nxt=self.obs
+        )
 
         # episode statistics
         info = DotDict(reward=reward, length=length)
 
-        return trs, th.tensor(self.nxt), info
+        return trs, np.copy(self.nxt), info
+    
+    def sample(self) -> NDArray:
+        space = self.act_space.space
+        return np.array([space.sample() for _ in range(self.n_envs)])
