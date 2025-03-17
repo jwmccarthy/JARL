@@ -63,6 +63,10 @@ class MultiArray(MultiIterable):
     def _(self, idx: NumpyIndex | th.Tensor) -> Self:
         return self.__class__(**{k: v[idx] for k, v in self.items()})
 
+    @__getitem__.register
+    def _(self, idx: List[str]) -> Self:
+        return self.__class__(**{k: self[k] for k in idx})
+
     @multimethod
     def __setitem__(self, key: str, val: Any) -> None:
         super().__setitem__(key, val)
@@ -141,6 +145,10 @@ class MultiTensor(MultiIterable):
     @__getitem__.register
     def _(self, idx: TorchIndex | th.Tensor) -> Self:
         return MultiTensor(**{k: v[idx] for k, v in self.items()}, device=self.device)
+
+    @__getitem__.register
+    def _(self, idx: NumpyIndex | th.Tensor) -> Self:
+        return self.__class__(**{k: v[idx] for k, v in self.items()})
 
     @multimethod
     def __setitem__(self, key: str, val: Any) -> None:
