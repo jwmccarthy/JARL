@@ -28,7 +28,7 @@ class SyncEnv:
         self.obs = np.empty((n_envs, *self.obs_space.shape),
                             dtype=np.float32)
         self.rew = np.empty((n_envs,), dtype=np.float32)
-        self.trc = np.empty((n_envs,), dtype=np.bool)
+        self.trc = np.empty((n_envs,), dtype=bool)
         self.don = np.empty_like(self.trc)
         self.nxt = np.empty_like(self.obs)
 
