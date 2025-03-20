@@ -16,7 +16,7 @@ class Logger:
         new_info = dict(global_t=t)
         for key, val in self.data.episode.items():
             if info[key]:
-                new_info |= {key: np.mean(val[-100:])}
+                new_info |= {key: np.mean(val[-50:])}
         self.progress_bar.update(episode=new_info)
 
     def update(self, info: Mapping[str, Any]) -> None:

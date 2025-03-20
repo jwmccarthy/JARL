@@ -67,7 +67,7 @@ class TrainLoop:
             # store data
             self.buffer.store(trs | exp)
 
-            if self.warmup:
+            if warmup:
                 continue
 
             # run blocks

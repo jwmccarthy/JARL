@@ -23,9 +23,15 @@ class BatchSampler(Sampler):
         self.convert = convert
         self.device = device
 
+    def _sample(self, data: MultiTensor, num_batch: int) -> SampleOutput:
+        idx = th.randperm(len(data))
+        for i in range(0, num_batch * self.batch_size, self.batch_size):
+            batch = data[idx[i : i + self.batch_size]]
+            yield batch
+
     def sample(self, data: MultiTensor) -> SampleOutput:
         data = data.flatten(0, 1)  # flatten data into single-row tensors
-        
+
         # calculate # of batches if not provided
         num_batch = self.num_batch or (len(data) // self.batch_size)
 
@@ -34,8 +40,4 @@ class BatchSampler(Sampler):
             idx = th.randperm(len(data))
 
             # yield slices of input data
-            for i in range(0, num_batch * self.batch_size, self.batch_size):
-                batch = data[idx[i : i + self.batch_size]]
-                if self.convert:
-                    batch = MultiTensor.from_numpy(batch, device=self.device)
-                yield batch
+            yield from self._sample(data[idx], num_batch)

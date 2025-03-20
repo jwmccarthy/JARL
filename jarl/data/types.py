@@ -33,7 +33,7 @@ torch_to_numpy = {
 # composite types
 Index = int | slice | Iterable[int]
 NumpyIndex = Index | NDArray[int | bool]
-TorchIndex = Index | th.IntTensor | th.BoolTensor
+TorchIndex = Index | th.Tensor
 
 Device = str | th.device
 

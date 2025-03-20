@@ -1,14 +1,20 @@
 import numpy as np
 import torch as th
 
-from typing import Self, Dict
+from numpy.typing import NDArray
 from abc import ABC, abstractmethod
+from typing import Dict, TypeVar, Generic
 
 from jarl.data.types import Device
-from jarl.data.multi import MultiArray, MultiTensor
+from jarl.data.multi import MultiIterable, MultiArray, MultiTensor
 
 
-class Buffer(ABC):
+T = TypeVar("T", NDArray, th.Tensor)
+
+
+class Buffer(ABC, Generic[T]):
+
+    _data: MultiIterable
 
     def __init__(self, size: int) -> None:
         self._idx = 0
@@ -16,11 +22,11 @@ class Buffer(ABC):
         self._full = False
 
     @abstractmethod
-    def store(self, data: Dict[str, th.Tensor]) -> None:
+    def store(self, data: Dict[str, T]) -> None:
         ...
 
     @abstractmethod
-    def serve(self) -> MultiArray | MultiTensor:
+    def serve(self) -> MultiIterable:
         ...
 
 
