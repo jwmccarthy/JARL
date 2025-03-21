@@ -40,9 +40,9 @@ from stable_baselines3.common.atari_wrappers import (
 )
 
 
-def make_env(env_id):
+def make_env(env_id, **kwargs):
     def thunk():
-        env = gym.make(env_id, frameskip=1)
+        env = gym.make(env_id, **kwargs)
         env = EpisodeStatsEnv(env)
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
@@ -55,7 +55,9 @@ def make_env(env_id):
 
     return thunk
 
-env = SyncEnv(make_env("ale_py:ALE/Breakout-v5"), 8)
+env = SyncEnv(make_env("ale_py:ALE/Breakout-v5", 
+                       frameskip=1, 
+                       repeat_action_probability=0.), 8)
 
 policy = CategoricalPolicy(
     head=ImageEncoder(CNN(

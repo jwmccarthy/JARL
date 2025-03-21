@@ -65,7 +65,7 @@ class SyncEnv:
         )
 
         # episode statistics
-        info = DotDict(reward=reward, length=length)
+        info = dict(reward=reward, length=length)
 
         return trs, np.copy(self.nxt), info
     
