@@ -7,7 +7,7 @@ import gymnasium as gym
 
 from jarl.envs.gym import SyncEnv
 
-from jarl.data.buffer import LazyBuffer
+from jarl.data.buffer import LazyArrayBuffer
 
 from jarl.modules.core import MLP, CNN
 from jarl.modules.utils import init_layer
@@ -97,7 +97,7 @@ ppo = (
     .compile()
 )
 
-buffer = LazyBuffer(128)
+buffer = LazyArrayBuffer(128, device="cuda")
 
 loop = TrainLoop(env, buffer, policy, graphs=[ppo])
 loop.run(int(1.25e6))

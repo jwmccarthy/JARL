@@ -13,14 +13,12 @@ class BatchSampler(Sampler):
         batch_size: int,
         num_epoch: int = 1,
         num_batch: int = None,
-        convert: bool = False,
         device: Device = "cpu" 
     ) -> None:
         super().__init__()
         self.batch_size = batch_size
         self.num_epoch = num_epoch
         self.num_batch = num_batch
-        self.convert = convert
         self.device = device
 
     def _sample(self, data: MultiTensor, num_batch: int) -> SampleOutput:
