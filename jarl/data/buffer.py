@@ -30,37 +30,41 @@ class Buffer(ABC, Generic[T]):
         ...
 
 
-class LazyBuffer(Buffer):
+class LazyArrayBuffer(Buffer[NDArray]):
 
     _data: MultiArray
 
-    def __init__(self, size: int) -> None:
+    def __init__(
+        self, 
+        size: int,
+        device: Device = None
+    ) -> None:
         super().__init__(size)
         self._init = False
+        self._device = device
 
-    def _lazy_init(self, batch: Dict[str, th.Tensor]) -> None:
+    def _lazy_init(self, batch: Dict[str, NDArray]) -> None:
         data, self._init = {}, True
         for key, val in batch.items():
             shape = (self._size, *val.shape)
             data[key] = np.empty(shape, dtype=val.dtype)
         self._data = MultiArray(**data)
 
-    def __len__(self) -> int:
-        return self.size if self._full else self._idx
-
     def store(self, data: Dict[str, th.Tensor]) -> None:
         # lazy-initialize tensor storage
-        if not self._init:
-            self._lazy_init(data)
+        if not self._init: self._lazy_init(data)
 
         # store data circularly
         self._data[self._idx] = data
         self._idx = (self._idx + 1) % self._size
 
         # full circular pass
-        if self._idx == 0:
-            self._full = True
+        if self._idx == 0: self._full = True
 
     def serve(self) -> MultiArray:
-        out = self._data[:] if self._full else self._data[:self._idx]
-        return MultiTensor.from_numpy(out, device="cuda")
+        end = self._size if self._full else self._idx
+        out = self._data[:end]
+        return (
+            MultiTensor.from_numpy(out, device=self._device) 
+            if self._device else out
+        )
