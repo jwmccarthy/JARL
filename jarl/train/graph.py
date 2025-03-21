@@ -4,9 +4,9 @@ from collections import defaultdict
 from typing import Any, Self, Dict, List
 
 from jarl.data.multi import MultiTensor
+from jarl.train.sample.base import Sampler
 from jarl.train.update.base import ModuleUpdate
 from jarl.train.modify.base import DataModifier
-from jarl.train.sample.base import Sampler, IdentitySampler
 
 from jarl.train.utils import (
     all_combinations, 
@@ -24,7 +24,7 @@ class TrainGraph:
     def __init__(
         self, 
         updates: ModuleUpdate | List[ModuleUpdate],
-        sampler: Sampler = IdentitySampler()
+        sampler: Sampler
     ) -> None:
         self.sampler = sampler
 
@@ -110,7 +110,7 @@ class TrainGraph:
 
         # sample batches w/in epochs
         batch_info = defaultdict(dict)
-        for batch in self.sampler.sample(data):
+        for batch in self.sampler(data):
             for update in self.update_queue:
                 name = update.__class__.__name__
                 batch_info[name] |= update(batch)

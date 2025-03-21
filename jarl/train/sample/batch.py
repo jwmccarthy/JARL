@@ -1,41 +1,67 @@
 import torch as th
 
+from typing import Self
+
 from jarl.data.types import Device
-from jarl.data.multi import MultiTensor
+from jarl.data.multi import MultiIterable
 from jarl.data.types import SampleOutput
 from jarl.train.sample.base import Sampler
 
 
 class BatchSampler(Sampler):
-    
+
     def __init__(
-        self, 
-        batch_size: int,
-        num_epoch: int = 1,
+        self,
+        batch_len: int = None,
         num_batch: int = None,
-        device: Device = "cpu" 
+        num_epoch: int = 1,
+        device: Device = None
     ) -> None:
-        super().__init__()
-        self.batch_size = batch_size
-        self.num_epoch = num_epoch
-        self.num_batch = num_batch
-        self.device = device
+        # 2 of 3 must be provided
+        assert batch_len or num_batch, (
+            "One of 'batch_len' or 'num_batch' must be provided."
+        )
 
-    def _sample(self, data: MultiTensor, num_batch: int) -> SampleOutput:
-        idx = th.randperm(len(data))
-        for i in range(0, num_batch * self.batch_size, self.batch_size):
-            batch = data[idx[i : i + self.batch_size]]
-            yield batch
+        super().__init__(device)
+        self._batch_len = batch_len
+        self._num_epoch = num_epoch
+        self._num_batch = num_batch
+        self._data: MultiIterable = None
 
-    def sample(self, data: MultiTensor) -> SampleOutput:
-        data = data.flatten(0, 1)  # flatten data into single-row tensors
+    def __call__(self, data: MultiIterable) -> Self:
+        self._data = data
+        return self
+    
+    def __iter__(self) -> Self:
+        assert self._data, "Data must be provided to Sampler."
 
-        # calculate # of batches if not provided
-        num_batch = self.num_batch or (len(data) // self.batch_size)
+        self._epoch = self._batch = 0
+        self._index = th.randperm(len(self._data))
 
-        for _ in range(self.num_epoch):
-            # randomly shuffle indices
-            idx = th.randperm(len(data))
+        # compute num_batch
+        self._new_nb = self._num_batch \
+            or len(self._data) / self._batch_len
 
-            # yield slices of input data
-            yield from self._sample(data[idx], num_batch)
+        # compute batch_len
+        self._new_bl = self._batch_len \
+            or len(self._data) / self._num_batch
+
+        return self
+    
+    def __next__(self) -> SampleOutput:  
+        if self._batch >= self._new_nb:
+            self._epoch += 1
+            self._batch = 0
+            self._index = th.randperm(len(self._data))
+
+        if self._epoch >= self._num_epoch:
+            raise StopIteration
+        
+        # generate batch from random index
+        l_idx = self._batch * self._new_bl
+        r_idx = l_idx + self._new_bl
+        batch = self._data[self._index[l_idx:r_idx]]
+
+        self._batch += 1
+
+        return batch

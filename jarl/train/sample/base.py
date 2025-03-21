@@ -1,17 +1,23 @@
+from typing import Self
 from abc import ABC, abstractmethod
 
-from jarl.data.multi import MultiTensor
-from jarl.data.types import SampleOutput
+from jarl.data.multi import MultiIterable
+from jarl.data.types import Device, SampleOutput
 
 
 class Sampler(ABC):
 
+    def __init__(self, device: Device = None) -> None:
+        self._device = device
+
     @abstractmethod
-    def sample(self, data: MultiTensor) -> SampleOutput:
+    def __call__(self, data: MultiIterable) -> Self:
         ...
 
+    @abstractmethod
+    def __iter__(self) -> Self:
+        ...
 
-class IdentitySampler(Sampler):
-
-    def sample(self, data: MultiTensor) -> SampleOutput:
-        return (data,)
+    @abstractmethod
+    def __next__(self) -> SampleOutput:
+        ...
