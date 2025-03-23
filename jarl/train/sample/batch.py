@@ -3,8 +3,9 @@ import torch as th
 from typing import Self
 
 from jarl.data.types import Device
-from jarl.data.multi import MultiIterable
 from jarl.data.types import SampleOutput
+from jarl.data.multi import MultiIterable, MultiTensor
+
 from jarl.train.sample.base import Sampler
 
 
@@ -64,4 +65,7 @@ class BatchSampler(Sampler):
 
         self._batch += 1
 
-        return batch
+        return (
+            MultiTensor.from_numpy(batch, device=self._device)
+            if self._device else batch
+        )

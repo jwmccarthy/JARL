@@ -1,16 +1,13 @@
 import torch as th
 import torch.nn.functional as F
-from torch.optim import Optimizer, Adam
+from torch.optim import Adam
 
-from typing import Dict, Any
-
+from jarl.data.types import LossInfo
 from jarl.data.multi import MultiTensor
-from jarl.data.types import LossInfo, SchedulerFunc
-
 from jarl.modules.policy import Policy
 from jarl.modules.types import QFunction
 from jarl.modules.operator import ValueFunction
-
+from jarl.train.optim import Optimizer, Scheduler
 from jarl.train.update.base import GradientUpdate
 
 
@@ -22,19 +19,15 @@ class MSEValueFunctionUpdate(GradientUpdate):
         self, 
         freq: int, 
         critic: ValueFunction,
-        optimizer: Optimizer = Adam,
-        scheduler: SchedulerFunc = None,
+        optimizer: Optimizer = Optimizer(Adam), 
+        scheduler: Scheduler = None,
         clip: float = None,
-        val_coef: float = 0.5,
-        grad_norm: float = None,
-        **op_kwargs: Dict[str, Any]
+        val_coef: float = 0.5
     ) -> None:
         super().__init__(
-            freq, [critic], 
+            freq, critic, 
             optimizer=optimizer,
-            scheduler=scheduler,
-            grad_norm=grad_norm,
-            **op_kwargs
+            scheduler=scheduler
         )
         self.critic = critic
         self.clip = clip
@@ -43,12 +36,15 @@ class MSEValueFunctionUpdate(GradientUpdate):
     def loss(self, data: MultiTensor) -> LossInfo:
         val = self.critic(data.obs)
         loss = (val - data.ret).pow(2)
+
         if self.clip:
             val_clip = data.val + th.clamp(
                 val - data.val, -self.clip, self.clip)
             loss_clip = (val_clip - data.ret).pow(2)
             loss = 0.5 * th.max(loss, loss_clip)
+
         loss = self.val_coef * loss.mean()
+        
         return loss, dict(critic_loss=loss.item())
     
 
@@ -62,18 +58,14 @@ class MSBEUpdate(GradientUpdate):
         q_func: QFunction,
         q_targ: QFunction,
         p_targ: Policy,
-        optimizer: Optimizer = Adam,
-        scheduler: SchedulerFunc = None,
-        gamma: float = 0.99,
-        grad_norm: float = None,
-        **op_kwargs: Dict[str, Any]
+        optimizer: Optimizer = Optimizer(Adam),
+        scheduler: Scheduler = None,
+        gamma: float = 0.99
     ) -> None:
         super().__init__(
-            freq, [q_func], 
+            freq, q_func, 
             optimizer=optimizer,
-            scheduler=scheduler,
-            grad_norm=grad_norm,
-            **op_kwargs
+            scheduler=scheduler
         )
         self.q_func = q_func
         self.q_targ = q_targ

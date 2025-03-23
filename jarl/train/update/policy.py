@@ -1,14 +1,11 @@
 import torch as th
-from torch.optim import Optimizer, Adam
+from torch.optim import Adam
 
-from typing import Dict, Any
-
-from jarl.data.multi import MultiTensor
-from jarl.data.types import LossInfo, SchedulerFunc
-
+from jarl.data.types import LossInfo
 from jarl.modules.policy import Policy
 from jarl.modules.types import QFunction
-
+from jarl.data.multi import MultiTensor
+from jarl.train.optim import Optimizer, Scheduler
 from jarl.train.update.base import GradientUpdate
 
 
@@ -21,18 +18,14 @@ class MaxQPolicyUpdate(GradientUpdate):
         freq: int,
         policy: Policy, 
         q_func: QFunction,
-        optimizer: Optimizer = Adam,
-        scheduler: SchedulerFunc = None,
-        gamma: float = 0.99,
-        grad_norm: float = None,
-        **op_kwargs: Dict[str, Any]
+        optimizer: Optimizer = Optimizer(Adam),
+        scheduler: Scheduler = None,
+        gamma: float = 0.99
     ) -> None:
         super().__init__(
-            freq, [policy], 
+            freq, policy, 
             optimizer=optimizer,
-            scheduler=scheduler,
-            grad_norm=grad_norm,
-            **op_kwargs
+            scheduler=scheduler
         )
         self.policy = policy
         self.q_func = q_func
@@ -52,19 +45,15 @@ class ClippedPolicyUpdate(GradientUpdate):
         self, 
         freq: int,
         policy: Policy, 
-        optimizer: Optimizer = Adam,
-        scheduler: SchedulerFunc = None,
+        optimizer: Optimizer = Optimizer(Adam),
+        scheduler: Scheduler = None,
         clip: float = 0.2,
-        ent_coef: float = 0.01,
-        grad_norm: float = None,
-        **op_kwargs: Dict[str, Any]
+        ent_coef: float = 0.01
     ) -> None:
         super().__init__(
-            freq, [policy], 
+            freq, policy, 
             optimizer=optimizer,
-            scheduler=scheduler,
-            grad_norm=grad_norm,
-            **op_kwargs
+            scheduler=scheduler
         )
         self.policy = policy
         self.clip = clip

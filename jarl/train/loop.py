@@ -1,14 +1,11 @@
-import numpy as np
 import torch as th
 
-import time
 from typing import List
 from numpy.typing import NDArray
 
-from jarl.data.dict import DotDict
 from jarl.data.buffer import Buffer
 
-from jarl.envs.gym import SyncEnv
+from jarl.envs.gym import SyncGymEnv
 from jarl.modules.policy import Policy
 from jarl.train.graph import TrainGraph
 from jarl.log.logger import Logger
@@ -18,12 +15,13 @@ class TrainLoop:
 
     def __init__(
         self, 
-        env: SyncEnv, 
+        env: SyncGymEnv, 
         buffer: Buffer,
         policy: Policy,
         graphs: List[TrainGraph],
         logger: Logger = Logger(),
-        warmup: int = 0
+        warmup: int = 0,
+        checkpt = None
     ) -> None:
         self.env = env
         self.buffer = buffer
@@ -31,14 +29,15 @@ class TrainLoop:
         self.logger = logger
         self.graphs = graphs
         self.warmup = warmup
+        self.checkpt = checkpt
     
-    def _get_action(self, obs: NDArray | th.Tensor, warmup: bool = False) -> th.Tensor:
-        if warmup:
-            return self.env.sample()
-        with th.no_grad():
-            obs = th.tensor(obs, device=self.policy.device)
-            act = self.policy(obs)
-        return act
+    @th.no_grad()
+    def _get_action(
+        self, obs: NDArray | th.Tensor, warmup: bool = False
+    ) -> th.Tensor:
+        if warmup: return None
+        obs = th.tensor(obs, device=self.policy.device)
+        return self.policy(obs)
 
     def ready(self, t: int) -> List[TrainGraph]:
         return [g for g in self.graphs if g.ready(t)]
@@ -67,13 +66,16 @@ class TrainLoop:
             # store data
             self.buffer.store(trs | exp)
 
-            if warmup:
-                continue
+            if warmup: continue  # skip updates if warming up
 
-            # run blocks
+            # run update blocks
             for graph in self.ready(t):
                 data = self.buffer.serve()
                 info = graph.update(data)
                 self.logger.update(info)
+
+            # evaluate policy and optionally save
+            if self.checkpt and self.checkpt.ready(global_t):
+                self.checkpt.run()
 
         return self.policy

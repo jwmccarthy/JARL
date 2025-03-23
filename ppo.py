@@ -1,10 +1,11 @@
 import numpy as np
 import torch.nn as nn
 from torch.optim import Adam
+from torch.optim.lr_scheduler import LinearLR
 
 import gymnasium as gym
 
-from jarl.envs.gym import SyncEnv
+from jarl.envs.gym import SyncGymEnv
 
 from jarl.data.buffer import LazyArrayBuffer
 
@@ -16,9 +17,11 @@ from jarl.modules.encoder.image import ImageEncoder
 
 from jarl.train.update.ppo import PPOUpdate
 from jarl.train.sample.batch import BatchSampler
+from jarl.train.optim import Optimizer, Scheduler
 
 from jarl.train.loop import TrainLoop
 from jarl.train.graph import TrainGraph
+from jarl.train.evaluate import Evaluator
 
 from jarl.train.modify.compute import (
     ComputeValues,
@@ -53,7 +56,7 @@ def make_env(env_id, **kwargs):
 
     return thunk
 
-env = SyncEnv(make_env("ale_py:ALE/Breakout-v5", 
+env = SyncGymEnv(make_env("ale_py:ALE/Breakout-v5", 
                        frameskip=1, 
                        repeat_action_probability=0.), 8)
 
@@ -83,7 +86,8 @@ critic = ValueFunction(
 ppo = (
     TrainGraph(
         PPOUpdate(128, policy, critic, clip=0.1,
-                  optimizer=Adam),
+                  optimizer=Optimizer(Adam, lr=2.5e-4),
+                  scheduler=Scheduler(LinearLR, start_factor=1.0, end_factor=0.0)),
         BatchSampler(256, num_epoch=4)
     )
     .add_modifier(ComputeAdvantages())
@@ -96,11 +100,16 @@ ppo = (
 
 buffer = LazyArrayBuffer(128, device="cuda")
 
-loop = TrainLoop(env, buffer, policy, graphs=[ppo])
+eval_env = SyncGymEnv(make_env("ale_py:ALE/Breakout-v5", 
+                               frameskip=1, 
+                               repeat_action_probability=0.), 1)
+
+loop = TrainLoop(env, buffer, policy, graphs=[ppo],
+                 checkpt=Evaluator(eval_env, policy, path="checkpoints/breakout/ppo"))
 loop.run(int(1.25e6))
 
 
-# env = SyncEnv(make_env("ALE/Breakout-v5", render=True), 1, device="cuda")
+# env = SyncGymEnv(make_env("ALE/Breakout-v5", render=True), 1, device="cuda")
 
 # N = 65536
 
