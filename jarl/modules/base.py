@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from typing import Self
 
-from jarl.envs.gym import SyncEnv
+from jarl.envs.gym import SyncGymEnv
 from jarl.modules.encoder.core import Encoder
 
 
@@ -27,7 +27,7 @@ class CompositeNet(nn.Module):
         self.device = device
         return super().to(device)
 
-    def build(self, env: SyncEnv, out_dim: int = 1) -> Self:
+    def build(self, env: SyncGymEnv, out_dim: int = 1) -> Self:
         self.head = self.head if self.head.built else self.head.build(env)
         self.body.build(self.head.feats, out_dim)
         self.foot = self.foot if self.foot else nn.Identity()

@@ -1,3 +1,4 @@
+import torch.nn as nn
 import torch.optim as opt
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import _LRScheduler
@@ -10,16 +11,16 @@ class Optimizer:
     def __init__(
         self, 
         optimizer: opt.Optimizer, 
-        max_grad_norm: float = 0.5, 
+        grad_norm: float = 0.5, 
         **op_kwargs
     ) -> None:
         self.optimizer = optimizer
         self.op_kwargs = op_kwargs
-        self.max_grad_norm = max_grad_norm
+        self.grad_norm = grad_norm
 
     def build(self, modules):
-        self.params = chain(*[m.parameters() for m in modules])
-        self.params = dict.fromkeys(list(self.params))
+        self.params = nn.ParameterList(dict.fromkeys([
+            p for m in modules for p in m.parameters()]))
         self.optimizer = self.optimizer(self.params, **self.op_kwargs)
         return self
     
@@ -28,8 +29,8 @@ class Optimizer:
         loss.backward()
 
         # clip gradients
-        if self.max_grad_norm:
-            clip_grad_norm_(self.params, self.max_grad_norm)
+        if self.grad_norm:
+            clip_grad_norm_(self.params, self.grad_norm)
 
         self.optimizer.step()
 

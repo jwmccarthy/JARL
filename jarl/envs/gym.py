@@ -5,12 +5,11 @@ import gymnasium as gym
 from typing import Callable, Any
 from numpy.typing import NDArray
 
-from jarl.data.dict import DotDict
 from jarl.data.types import EnvOutput
 from jarl.envs.space import torch_space
 
 
-class SyncEnv:
+class SyncGymEnv:
 
     def __init__(
         self, 
@@ -36,8 +35,8 @@ class SyncEnv:
         obs = [env.reset()[0].astype(np.float32) for env in self.envs]
         return np.stack(obs)
     
-    def step(self, act: NDArray | th.Tensor) -> EnvOutput:
-        actions = act
+    def step(self, act: NDArray | th.Tensor = None) -> EnvOutput:
+        actions = act if act is not None else self._sample_acts()
         if isinstance(act, th.Tensor):
             actions = act.detach().cpu().numpy()
         reward, length = [], []   
@@ -69,6 +68,6 @@ class SyncEnv:
 
         return trs, np.copy(self.nxt), info
     
-    def sample(self) -> NDArray:
+    def _sample_acts(self) -> NDArray:
         space = self.act_space.space
         return np.array([space.sample() for _ in range(self.n_envs)])

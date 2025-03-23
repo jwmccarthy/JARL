@@ -12,7 +12,7 @@ from functools import lru_cache
 from abc import ABC, abstractmethod
 
 from jarl.data.types import Device
-from jarl.envs.gym import SyncEnv
+from jarl.envs.gym import SyncGymEnv
 from jarl.modules.encoder.core import Encoder
 from jarl.modules.base import CompositeNet
 
@@ -27,7 +27,7 @@ class Policy(CompositeNet, ABC):
     ) -> None:
         super().__init__(head, body, foot)
 
-    def build(self, env: SyncEnv) -> Self:
+    def build(self, env: SyncGymEnv) -> Self:
         return super().build(env, env.act_space.flat_dim)
 
     @abstractmethod
@@ -83,7 +83,7 @@ class DiagonalGaussianPolicy(Policy):
     ) -> None:
         super().__init__(head, body, foot)
 
-    def build(self, env: SyncEnv) -> Self:
+    def build(self, env: SyncGymEnv) -> Self:
         super().build(env)
         log_std = th.zeros((env.act_space.flat_dim))
         self.log_std = nn.Parameter(log_std)

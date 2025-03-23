@@ -3,8 +3,9 @@ import torch as th
 from typing import Self
 
 from jarl.data.types import Device
-from jarl.data.multi import MultiIterable
 from jarl.data.types import SampleOutput
+from jarl.data.multi import MultiIterable, MultiTensor
+
 from jarl.train.sample.base import Sampler
 
 
@@ -29,7 +30,7 @@ class BatchSampler(Sampler):
         self._data: MultiIterable = None
 
     def __call__(self, data: MultiIterable) -> Self:
-        self._data = data
+        self._data = data.flatten(0, 1)
         return self
     
     def __iter__(self) -> Self:
@@ -39,12 +40,12 @@ class BatchSampler(Sampler):
         self._index = th.randperm(len(self._data))
 
         # compute num_batch
-        self._new_nb = self._num_batch \
-            or len(self._data) / self._batch_len
+        self._new_nb = (self._num_batch
+            or len(self._data) // self._batch_len)
 
         # compute batch_len
         self._new_bl = self._batch_len \
-            or len(self._data) / self._num_batch
+            or len(self._data) // self._num_batch
 
         return self
     
@@ -64,4 +65,7 @@ class BatchSampler(Sampler):
 
         self._batch += 1
 
-        return batch
+        return (
+            MultiTensor.from_numpy(batch, device=self._device)
+            if self._device else batch
+        )

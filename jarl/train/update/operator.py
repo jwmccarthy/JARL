@@ -36,12 +36,15 @@ class MSEValueFunctionUpdate(GradientUpdate):
     def loss(self, data: MultiTensor) -> LossInfo:
         val = self.critic(data.obs)
         loss = (val - data.ret).pow(2)
+
         if self.clip:
             val_clip = data.val + th.clamp(
                 val - data.val, -self.clip, self.clip)
             loss_clip = (val_clip - data.ret).pow(2)
             loss = 0.5 * th.max(loss, loss_clip)
+
         loss = self.val_coef * loss.mean()
+        
         return loss, dict(critic_loss=loss.item())
     
 
