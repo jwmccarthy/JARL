@@ -15,8 +15,9 @@ class ImageEncoder(Encoder):
 
     def build(self, env: SyncGymEnv) -> Self:
         super().build(env)
-        self.cnn.build(env.obs_space.shape[-3])
-        self.feats = len(self(env.obs_space.sample()))
+        self.obs_dim = env.obs_space.shape
+        self.cnn.build(self.obs_dim[-3])
+        self.feats = self(env.obs_space.sample()).shape[-1]
         return self
     
     def forward(self, x: th.Tensor) -> th.Tensor:

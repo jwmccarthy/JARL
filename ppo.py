@@ -31,7 +31,7 @@ from jarl.train.modify.compute import (
 )
 from jarl.train.modify.reward import SignRewards
 
-from jarl.envs.wrappers import EpisodeStatsEnv
+from jarl.envs.wrappers import EpisodeStatsEnv, ReshapeImageEnv
 
 from stable_baselines3.common.atari_wrappers import (
     EpisodicLifeEnv,
@@ -48,15 +48,16 @@ def make_env(env_id, **kwargs):
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
-        env = FireResetEnv(env)
+        # env = FireResetEnv(env)
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        env = gym.wrappers.GrayscaleObservation(env)
+        # env = gym.wrappers.GrayscaleObservation(env)
         env = gym.wrappers.FrameStackObservation(env, 4)
+        env = ReshapeImageEnv(env)
         return env
 
     return thunk
 
-env = SyncGymEnv(make_env("ale_py:ALE/Breakout-v5", 
+env = SyncGymEnv(make_env("ale_py:ALE/Pacman-v5", 
                        frameskip=1, 
                        repeat_action_probability=0.), 8)
 
@@ -100,22 +101,10 @@ ppo = (
 
 buffer = LazyArrayBuffer(128, device="cuda")
 
-eval_env = SyncGymEnv(make_env("ale_py:ALE/Breakout-v5", 
+eval_env = SyncGymEnv(make_env("ale_py:ALE/Pacman-v5", 
                                frameskip=1, 
                                repeat_action_probability=0.), 1)
 
 loop = TrainLoop(env, buffer, policy, graphs=[ppo],
-                 checkpt=Evaluator(eval_env, policy, path="checkpoints/breakout/ppo"))
+                 checkpt=Evaluator(eval_env, policy, path="checkpoints/pacman/ppo"))
 loop.run(int(1.25e6))
-
-
-# env = SyncGymEnv(make_env("ALE/Breakout-v5", render=True), 1, device="cuda")
-
-# N = 65536
-
-# obs = env.reset()
-# for t in range(N):
-#     act = policy(obs, sample=False)
-#     trs = DotDict(act=act)
-#     _, obs = env.step(trs=trs)
-# env.env.close()
