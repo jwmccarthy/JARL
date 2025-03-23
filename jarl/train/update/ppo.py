@@ -1,12 +1,13 @@
-from torch.optim import Adam
+from torch.optim import Optimizer, Adam
 
-from jarl.data.types import LossInfo
+from typing import Dict, Any
+
 from jarl.data.multi import MultiTensor
+from jarl.data.types import LossInfo, SchedulerFunc
 
 from jarl.modules.policy import Policy
 from jarl.modules.operator import ValueFunction
 
-from jarl.train.optim import Optimizer, Scheduler
 from jarl.train.update.base import GradientUpdate
 from jarl.train.update.policy import ClippedPolicyUpdate
 from jarl.train.update.operator import MSEValueFunctionUpdate
@@ -21,16 +22,20 @@ class PPOUpdate(GradientUpdate):
         freq: int,
         policy: Policy, 
         critic: ValueFunction,
-        optimizer: Optimizer = Optimizer(Adam),
-        scheduler: Scheduler = None,
+        optimizer: Optimizer = Adam,
+        scheduler: SchedulerFunc = None,
         clip: float = 0.2,
         val_coef: float = 0.5,
         ent_coef: float = 0.01,
+        grad_norm: float = None,
+        **op_kwargs: Dict[str, Any]
     ) -> None:
         super().__init__(
             freq, [policy, critic], 
             optimizer=optimizer,
-            scheduler=scheduler
+            scheduler=scheduler,
+            grad_norm=grad_norm,
+            **op_kwargs
         )
         self.policy = policy
         self.critic = critic

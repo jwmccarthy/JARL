@@ -1,13 +1,12 @@
-import torch as th
 import torch.nn as nn
-from torch.optim import Adam
+from torch.optim import Optimizer, Adam
+from torch.nn.utils import clip_grad_norm_
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Set, List
 
-from jarl.data.types import LossInfo
 from jarl.data.multi import MultiTensor
-from jarl.train.optim import Optimizer, Scheduler
+from jarl.data.types import LossInfo, SchedulerFunc
 
 
 class ModuleUpdate(ABC):
@@ -35,28 +34,29 @@ class GradientUpdate(ModuleUpdate, ABC):
     def __init__(
         self, 
         freq: int, 
-        modules: nn.Module | List[nn.Module],
-        optimizer: Optimizer = Optimizer(Adam),
-        scheduler: Scheduler = None
+        modules: List[nn.Module],
+        optimizer: Optimizer = Adam,
+        scheduler: SchedulerFunc = None,
+        grad_norm: float = None,
+        **op_kwargs: Dict[str, Any]
     ) -> None:
         super().__init__(freq)
 
-        if not isinstance(modules, list):
-            modules = [modules]
-        self.modules = modules
+        # compile distinct parameters
+        self.params = nn.ParameterList(
+            dict.fromkeys(p for m in modules for p in m.parameters()))
+        
+        self.grad_norm = grad_norm
+        self.optimizer = optimizer(self.params, **op_kwargs)
+        self.scheduler_func = scheduler
 
-        self.optimizer = optimizer
-        self.scheduler = scheduler
-        if self.optimizer is not None:
-            self.build(self.optimizer)
-
-    def build(self, optimizer: Optimizer) -> None:
-        self.optimizer = optimizer
-        self.optimizer.build(self.modules)
-        if self.scheduler:
-            self.scheduler.build(self.optimizer)
-        return self
+    def init_scheduler(self, steps: int) -> None:
+        if not self.scheduler_func: return
+        self.scheduler = self.scheduler_func(self.optimizer, steps)
     
+    def step_scheduler(self) -> None:
+        if self.scheduler: self.scheduler.step()
+
     @property
     def requires_keys(self) -> Set[str]:
         return self._requires_keys
@@ -67,5 +67,13 @@ class GradientUpdate(ModuleUpdate, ABC):
 
     def __call__(self, data: MultiTensor) -> Dict[str, Any]:
         loss, info = self.loss(data)
-        self.optimizer.update(loss)
+        self.optimizer.zero_grad()
+        loss.backward()
+
+        # clip gradients
+        if self.grad_norm:
+            clip_grad_norm_(self.params, self.grad_norm)
+
+        self.optimizer.step()
+
         return info

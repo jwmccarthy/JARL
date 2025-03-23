@@ -1,13 +1,16 @@
 import torch as th
 import torch.nn.functional as F
-from torch.optim import Adam
+from torch.optim import Optimizer, Adam
 
-from jarl.data.types import LossInfo
+from typing import Dict, Any
+
 from jarl.data.multi import MultiTensor
+from jarl.data.types import LossInfo, SchedulerFunc
+
 from jarl.modules.policy import Policy
 from jarl.modules.types import QFunction
 from jarl.modules.operator import ValueFunction
-from jarl.train.optim import Optimizer, Scheduler
+
 from jarl.train.update.base import GradientUpdate
 
 
@@ -19,15 +22,19 @@ class MSEValueFunctionUpdate(GradientUpdate):
         self, 
         freq: int, 
         critic: ValueFunction,
-        optimizer: Optimizer = Optimizer(Adam), 
-        scheduler: Scheduler = None,
+        optimizer: Optimizer = Adam,
+        scheduler: SchedulerFunc = None,
         clip: float = None,
-        val_coef: float = 0.5
+        val_coef: float = 0.5,
+        grad_norm: float = None,
+        **op_kwargs: Dict[str, Any]
     ) -> None:
         super().__init__(
-            freq, critic, 
+            freq, [critic], 
             optimizer=optimizer,
-            scheduler=scheduler
+            scheduler=scheduler,
+            grad_norm=grad_norm,
+            **op_kwargs
         )
         self.critic = critic
         self.clip = clip
@@ -55,14 +62,18 @@ class MSBEUpdate(GradientUpdate):
         q_func: QFunction,
         q_targ: QFunction,
         p_targ: Policy,
-        optimizer: Optimizer = Optimizer(Adam),
-        scheduler: Scheduler = None,
-        gamma: float = 0.99
+        optimizer: Optimizer = Adam,
+        scheduler: SchedulerFunc = None,
+        gamma: float = 0.99,
+        grad_norm: float = None,
+        **op_kwargs: Dict[str, Any]
     ) -> None:
         super().__init__(
-            freq, q_func, 
+            freq, [q_func], 
             optimizer=optimizer,
-            scheduler=scheduler
+            scheduler=scheduler,
+            grad_norm=grad_norm,
+            **op_kwargs
         )
         self.q_func = q_func
         self.q_targ = q_targ

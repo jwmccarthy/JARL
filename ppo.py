@@ -1,7 +1,6 @@
 import numpy as np
 import torch.nn as nn
 from torch.optim import Adam
-from torch.optim.lr_scheduler import LinearLR
 
 import gymnasium as gym
 
@@ -17,7 +16,6 @@ from jarl.modules.encoder.image import ImageEncoder
 
 from jarl.train.update.ppo import PPOUpdate
 from jarl.train.sample.batch import BatchSampler
-from jarl.train.optim import Optimizer, Scheduler
 
 from jarl.train.loop import TrainLoop
 from jarl.train.graph import TrainGraph
@@ -47,7 +45,7 @@ def make_env(env_id, **kwargs):
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
-        # env = FireResetEnv(env)
+        env = FireResetEnv(env)
         env = gym.wrappers.ResizeObservation(env, (84, 84))
         env = gym.wrappers.GrayscaleObservation(env)
         env = gym.wrappers.FrameStackObservation(env, 4)
@@ -85,8 +83,7 @@ critic = ValueFunction(
 ppo = (
     TrainGraph(
         PPOUpdate(128, policy, critic, clip=0.1,
-                  optimizer=Optimizer(Adam, lr=2.5e-4),
-                  scheduler=Scheduler(LinearLR, start_factor=1.0, end_factor=0.0)),
+                  optimizer=Adam),
         BatchSampler(256, num_epoch=4)
     )
     .add_modifier(ComputeAdvantages())
