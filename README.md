@@ -1,5 +1,7 @@
 # JARL (WIP)
 
+Still under active dev. Pivoting for now to develop proprietary on-GPU simulations for improved speed. In its current state, JARL is fit to implement and run a wide variety of algorithms.
+
 JARL is written to be highly modular and allow for rapid prototyping of different RL algorithms.
 Eventually, many existing algorithms will be implemented by default within JARL. Their core components will therefore be available to rearrange and refactor into more novel approaches.
 JARL utilizes a few core proprietary objects...
