@@ -67,6 +67,8 @@ which does the following:
 
 From here, we can have updates of varying frequency that run only their necessary prerequisite ```DataModifier``` when they're ready. This is wildly overkill for simple algorithms, but it is highly generalizable, customizable, and makes intuitive sense for algorithms with multiple updates that operate at different frequencies. For instance, SAC may utilize different update timings for its Q updates, policy updates, and target network Polyak updates.
 
+#### Generalized Structure
+
 Notably, on-policy and off-policy algorithms are only distinguished in JARL by the size of the replay buffer in relation to the update timings. For on-policy algorithms, the circular replay buffer will have a maximum capacity equal to the update frequency. Off-policy algorithms will have much larger buffers than the update frequency.
 
 I realize this is probably an overly complicated way to go about things, but there are so many frameworks already and I wanted to do something new!
