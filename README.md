@@ -69,4 +69,4 @@ From here, we can have updates of varying frequency that run only their necessar
 
 #### Generalized Structure
 
-Notably, on-policy and off-policy algorithms are only distinguished in JARL by the size of the replay buffer in relation to the update timings. For on-policy algorithms, the circular replay buffer will have a maximum capacity equal to the update frequency. Off-policy algorithms will have much larger buffers than the update frequency.
+Notably, on-policy and off-policy algorithms are only distinguished in JARL by the size of the replay buffer in relation to the update timings. For on-policy algorithms, the circular replay buffer will have a maximum capacity equal to the update frequency. Off-policy algorithms will have much larger buffers than the update frequency. This simplifies the underlying implementation by avoiding unnecessary object distinctions, and also allows for the use of any module in both on-policy and off-policy contexts.
