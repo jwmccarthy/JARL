@@ -16,7 +16,10 @@ from jarl.train.utils import (
 
 
 # we can assume these keys will come from the buffer
-ROOT = {"obs", "act", "rew", "don", "nxt", "trc"}
+ROOT = {
+    "obs", "act", "rew", "don", "nxt", "trc",
+    "lgp", "val", "next_val", "policy_h", "critic_h",
+}
 
 
 class TrainGraph:

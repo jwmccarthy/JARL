@@ -115,11 +115,11 @@ class MultiDiscreteSpace(TensorSpace):
     
     @property
     def flat_dim(self) -> int:
-        return np.sum(self.nvec)
+        return int(self.nvec.sum().item())
     
     @property
     def numel(self) -> int:
-        return len(self.nvec)
+        return self.nvec.numel()
     
 
 @dataclass

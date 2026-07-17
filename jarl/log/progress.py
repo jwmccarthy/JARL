@@ -78,7 +78,7 @@ class Progress:
         # section content
         for key, ten in self.stats[section].items():
             # round tensors
-            val_str = f"{float(ten):.3f}"
+            val_str = f"{float(ten):.6f}"
 
             # truncate keys if too long
             key_str = f"• {key[:key_width]}"

@@ -11,15 +11,17 @@ class MLP(nn.Module):
     model: nn.Module
 
     def __init__(
-        self, 
+        self,
         dims: List[int] = [64, 64],
         func: nn.Module = nn.ReLU,
-        init_func=init_layer
+        init_func=init_layer,
+        out_init_func=None,
     ) -> None:
         super().__init__()
         self.dims = dims            # hidden layer dims
         self.func = func            # activation function
         self.init_func = init_func  # weight init function
+        self.out_init_func = out_init_func
 
     def build(self, in_dim: int, out_dim: int) -> Self:
         self.model = nn.Sequential()
@@ -31,7 +33,10 @@ class MLP(nn.Module):
             in_dim = next_dim
 
         # output linear layer
-        self.model.append(nn.Linear(in_dim, out_dim))
+        output = nn.Linear(in_dim, out_dim)
+        if self.out_init_func:
+            output = self.out_init_func(output)
+        self.model.append(output)
 
         return self
 

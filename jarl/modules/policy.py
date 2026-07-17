@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 
 from jarl.data.types import Device
 from jarl.envs.gym import SyncGymEnv
+from jarl.envs.space import MultiDiscreteSpace
 from jarl.modules.encoder.core import Encoder
 from jarl.modules.base import CompositeNet
 
@@ -71,6 +72,46 @@ class CategoricalPolicy(Policy):
     
     def sample(self, obs: th.Tensor) -> th.Tensor:
         return self.dist(obs).sample()
+
+
+class MultiCategoricalPolicy(Policy):
+    """Factorized categorical policy for MultiDiscrete action spaces."""
+
+    def build(self, env: SyncGymEnv) -> Self:
+        assert isinstance(env.act_space, MultiDiscreteSpace), (
+            "MultiCategoricalPolicy only supports MultiDiscrete actions")
+        self.action_shape = env.act_space.shape
+        self.sizes = tuple(
+            int(n) for n in env.act_space.nvec.flatten().tolist()
+        )
+        return super().build(env)
+
+    def dist(self, obs: th.Tensor) -> list[Distribution]:
+        logits = self.model(obs).split(self.sizes, dim=-1)
+        return [Categorical(logits=value) for value in logits]
+
+    def action(self, obs: th.Tensor) -> th.Tensor:
+        actions = th.stack(
+            [dist.logits.argmax(dim=-1) for dist in self.dist(obs)], dim=-1
+        )
+        return actions.reshape(*actions.shape[:-1], *self.action_shape)
+
+    def sample(self, obs: th.Tensor) -> th.Tensor:
+        actions = th.stack([dist.sample() for dist in self.dist(obs)], dim=-1)
+        return actions.reshape(*actions.shape[:-1], *self.action_shape)
+
+    def logprob(self, obs: th.Tensor, act: th.Tensor) -> th.Tensor:
+        flat_act = act.reshape(*act.shape[:-len(self.action_shape)], -1)
+        logprobs = [
+            dist.log_prob(flat_act[..., i])
+            for i, dist in enumerate(self.dist(obs))
+        ]
+        return th.stack(logprobs, dim=-1).sum(-1)
+
+    def entropy(self, obs: th.Tensor) -> th.Tensor:
+        return th.stack(
+            [dist.entropy() for dist in self.dist(obs)], dim=-1
+        ).sum(-1)
     
 
 class DiagonalGaussianPolicy(Policy):

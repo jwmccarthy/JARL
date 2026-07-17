@@ -83,6 +83,7 @@ class ClippedPolicyUpdate(GradientUpdate):
 
         return t_loss, dict(
             policy_loss=p_loss.item(),
+            entropy=ent.mean().item(),
             entropy_loss=e_loss.item(),
             approx_kl=approx_kl
         )
