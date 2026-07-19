@@ -21,37 +21,36 @@ uv sync --extra logging
 
 ## Runtime Structure
 
-JARL uses an explicit staged runtime:
+Training is split into six stages:
 
-```text
-collect -> store -> sample -> prepare -> optimize -> maintain
-```
+1. **Collect**
 
-- `Runner` performs environment interaction.
-- Capture components choose optional policy-time fields such as action log
-  probabilities, values, and recurrent state.
-- `RolloutBuffer` owns ordered consumable on-policy data.
-- `ReplayBuffer` owns persistent off-policy data and samples transitions or
-  episode-safe windows directly.
-- Ordered transforms derive rewards, advantages, returns, and targets.
-- Flat and recurrent samplers choose minibatch temporal structure.
-- Learners own optimizer ordering, target updates, and scheduler advancement.
-- `LearningProgram` optionally sequences coarse stages such as discriminator
-  training, learned-reward materialization, and PPO optimization.
+   `Runner` uses the policy to step the environment. Capture components can
+   also record values, action log probabilities, and recurrent state.
 
-The PPO collection boundary is explicit:
+2. **Store**
 
-```python
-captures = (
-    LogProbCapture(),
-    PolicyVersionCapture(policy),
-    ValueCapture(critic),
-)
-rollout = RolloutBuffer(horizon=128, num_envs=8, device="cuda")
-runner = Runner(env, policy, rollout, captures=captures)
-```
+   `RolloutBuffer` keeps ordered on-policy data until it is consumed.
+   `ReplayBuffer` keeps off-policy data for reuse.
 
-`ppo.py` is a complete feed-forward example.
+3. **Sample**
+
+   Samplers turn stored data into flat or recurrent minibatches.
+
+4. **Prepare**
+
+   Transforms calculate the rewards, advantages, returns, and targets needed
+   for training.
+
+5. **Optimize**
+
+   Learners run the optimizer steps that update each model.
+
+6. **Maintain**
+
+   Target networks and learning-rate schedules are updated after training.
+   `LearningProgram` can coordinate multi-part updates when an algorithm needs
+   them.
 
 ## Recurrent Networks
 
