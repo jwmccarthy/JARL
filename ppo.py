@@ -7,8 +7,8 @@ import gymnasium as gym
 from jarl.envs.gym import SyncGymEnv
 
 from jarl.collect import (
-    BehaviorVersionCapture,
-    DecisionArtifact,
+    LogProbCapture,
+    PolicyVersionCapture,
     Runner,
     ValueCapture,
 )
@@ -88,8 +88,8 @@ runner = Runner(
     policy,
     buffer,
     captures=(
-        DecisionArtifact("log_prob", "behavior_log_prob"),
-        BehaviorVersionCapture(policy),
+        LogProbCapture(),
+        PolicyVersionCapture(policy),
         ValueCapture(critic),
     ),
 )

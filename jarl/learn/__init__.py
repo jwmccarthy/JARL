@@ -3,15 +3,13 @@ from jarl.learn.optim import OptimizerStep, unique_parameters
 from jarl.learn.ppo import PPOConfig, PPOLearner, PPOOptimizer
 from jarl.learn.program import (
     LearningProgram,
-    LearningStage,
     LearningWorkspace,
     OptimizePPO,
-    TransformArtifact,
+    TransformRollout,
 )
 
 __all__ = [
     "LearningProgram",
-    "LearningStage",
     "LearningWorkspace",
     "OptimizePPO",
     "OptimizerStep",
@@ -19,6 +17,6 @@ __all__ = [
     "PPOLearner",
     "PPOOptimizer",
     "TrainDiscriminator",
-    "TransformArtifact",
+    "TransformRollout",
     "unique_parameters",
 ]

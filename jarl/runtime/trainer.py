@@ -6,14 +6,14 @@ class Trainer:
     def __init__(
         self,
         runner,
-        source,
+        buffer,
         learner,
         schedule,
         logger: Logger | None = None,
         checkpoint=None,
     ) -> None:
         self.runner = runner
-        self.source = source
+        self.buffer = buffer
         self.learner = learner
         self.schedule = schedule
         self.logger = logger or Logger()
@@ -33,19 +33,19 @@ class Trainer:
             self.clock.episodes += int(env_step.done.sum())
             self.logger.episode(self.clock.env_steps, env_step.info)
 
-            if self.schedule.ready(self.source, self.clock):
+            if self.schedule.ready(self.buffer, self.clock):
                 self._update()
-            elif index == vector_steps - 1 and self.schedule.pending(self.source):
+            elif index == vector_steps - 1 and self.schedule.pending(self.buffer):
                 self._update()
 
             if self.checkpoint and self.checkpoint.ready(self.clock.env_steps):
                 self.checkpoint.run()
 
-        return self.runner.behavior
+        return self.runner.policy
 
     def _update(self) -> None:
-        data = self.schedule.acquire(self.source)
+        data = self.schedule.acquire(self.buffer)
         metrics = self.learner.update(data)
         self.clock.learner_updates += 1
         self.logger.update(metrics, step=self.clock.env_steps)
-        self.schedule.after_update(self.source)
+        self.schedule.after_update(self.buffer)

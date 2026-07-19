@@ -2,17 +2,17 @@ from jarl.store.rollout import RolloutBuffer
 
 
 class OnPolicySchedule:
-    def ready(self, source: RolloutBuffer, clock) -> bool:
-        return source.full
+    def ready(self, buffer: RolloutBuffer, clock) -> bool:
+        return buffer.full
 
-    def acquire(self, source: RolloutBuffer):
-        return source.finish()
+    def acquire(self, buffer: RolloutBuffer):
+        return buffer.finish()
 
-    def after_update(self, source: RolloutBuffer) -> None:
-        source.clear()
+    def after_update(self, buffer: RolloutBuffer) -> None:
+        buffer.clear()
 
-    def pending(self, source: RolloutBuffer) -> bool:
-        return source.position > 0
+    def pending(self, buffer: RolloutBuffer) -> bool:
+        return buffer.position > 0
 
 
 class OffPolicySchedule:
@@ -24,17 +24,17 @@ class OffPolicySchedule:
         self.learning_starts_env_steps = learning_starts_env_steps
         self.update_every_vector_steps = update_every_vector_steps
 
-    def ready(self, source, clock) -> bool:
+    def ready(self, buffer, clock) -> bool:
         return (
             clock.env_steps >= self.learning_starts_env_steps
             and clock.vector_steps % self.update_every_vector_steps == 0
         )
 
-    def acquire(self, source):
-        return source
+    def acquire(self, buffer):
+        return buffer
 
-    def after_update(self, source) -> None:
+    def after_update(self, buffer) -> None:
         return None
 
-    def pending(self, source) -> bool:
+    def pending(self, buffer) -> bool:
         return False

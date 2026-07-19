@@ -12,8 +12,8 @@ from jarl.modules.encoder.core import Encoder
 class ValueFunction(CompositeNet):
 
     def __init__(
-        self, 
-        head: Encoder, 
+        self,
+        head: Encoder,
         body: nn.Module,
         foot: nn.Module = None
     ) -> None:
@@ -21,34 +21,34 @@ class ValueFunction(CompositeNet):
 
     def build(self, env: SyncGymEnv) -> Self:
         return super().build(env)
-    
+
     def forward(self, x: th.Tensor) -> th.Tensor:
         return super().forward(x).squeeze(-1)
 
     def value(
-        self, obs: th.Tensor, state: th.Tensor | None = None
+        self, observation: th.Tensor, state: th.Tensor | None = None
     ) -> th.Tensor:
         if state is not None:
             raise ValueError("feed-forward value functions do not accept recurrent state")
-        return self(obs)
+        return self(observation)
 
     def evaluate_values(
         self,
-        obs: th.Tensor,
+        observation: th.Tensor,
         state: th.Tensor | None = None,
         *,
         reset: th.Tensor | None = None,
     ) -> th.Tensor:
         if reset is not None:
             raise ValueError("feed-forward value functions do not accept reset masks")
-        return self.value(obs, state)
-    
+        return self.value(observation, state)
+
 
 class DiscreteQFunction(CompositeNet):
 
     def __init__(
-        self, 
-        head: Encoder, 
+        self,
+        head: Encoder,
         body: nn.Module,
         foot: nn.Module = None
     ) -> None:
@@ -58,16 +58,16 @@ class DiscreteQFunction(CompositeNet):
         assert isinstance(env.act_space, DiscreteSpace), (
             "DiscreteQFunction only supports Discrete action")
         return super().build(env, env.act_space.numel)
-    
+
     def forward(self, x: th.Tensor) -> th.Tensor:
         return super().forward(x).squeeze(-1)
-    
+
 
 class ContinuousQFunction(CompositeNet):
 
     def __init__(
-        self, 
-        head: Encoder, 
+        self,
+        head: Encoder,
         body: nn.Module,
         foot: nn.Module = None
     ) -> None:
@@ -81,6 +81,6 @@ class ContinuousQFunction(CompositeNet):
         self.foot = self.foot if self.foot else nn.Identity()
         return self
 
-    def forward(self, obs: th.Tensor, act: th.Tensor) -> th.Tensor:
-        feats = th.cat((self.head(obs), act), dim=-1)
+    def forward(self, observation: th.Tensor, action: th.Tensor) -> th.Tensor:
+        feats = th.cat((self.head(observation), action), dim=-1)
         return self.foot(self.body(feats)).squeeze(-1)

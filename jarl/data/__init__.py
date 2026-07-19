@@ -1,4 +1,4 @@
 from jarl.data.batch import TensorBatch
-from jarl.data.records import ActionDecision, EnvStep, Evaluation
+from jarl.data.records import EnvStep, Evaluation, PolicyOutput
 
-__all__ = ["ActionDecision", "EnvStep", "Evaluation", "TensorBatch"]
+__all__ = ["EnvStep", "Evaluation", "PolicyOutput", "TensorBatch"]

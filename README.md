@@ -26,7 +26,7 @@ collect -> store -> sample -> prepare -> optimize -> maintain
 ```
 
 - `Runner` performs environment interaction.
-- Capture components choose optional behavior-time fields such as action log
+- Capture components choose optional policy-time fields such as action log
   probabilities, values, and recurrent state.
 - `RolloutBuffer` owns ordered consumable on-policy data.
 - `ReplayBuffer` owns persistent off-policy data and samples transitions or
@@ -41,8 +41,8 @@ The PPO collection boundary is explicit:
 
 ```python
 captures = (
-    DecisionArtifact("log_prob", "behavior_log_prob"),
-    BehaviorVersionCapture(policy),
+    LogProbCapture(),
+    PolicyVersionCapture(policy),
     ValueCapture(critic),
 )
 rollout = RolloutBuffer(horizon=128, num_envs=8, device="cuda")

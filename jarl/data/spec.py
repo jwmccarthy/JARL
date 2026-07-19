@@ -13,7 +13,7 @@ from jarl.data.types import Device, torch_to_numpy
 class TensorSpec:
     """Tensor spec w/ shape, dtype, & numpy conversion"""
 
-    shape:  tuple
+    shape:  tuple[int, ...]
     dtype:  th.dtype
     stype:  np.dtype = field(init=False)
     device: Device = field(default="cpu", kw_only=True)

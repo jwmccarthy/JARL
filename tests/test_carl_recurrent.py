@@ -27,16 +27,16 @@ class CarlRecurrentTests(unittest.TestCase):
         self.critic = GRUValue(16, self.backbone)
 
     def test_immediate_action_log_probability_matches_evaluation(self):
-        obs = th.randn(3, self.env.obs_dim)
+        observation = th.randn(3, self.env.obs_dim)
         state = self.policy.initial_state(3)
-        decision = self.policy.act(obs, state)
+        policy_output = self.policy.act(observation, state)
         evaluation = self.policy.evaluate_actions(
-            obs.unsqueeze(0),
-            decision.action.unsqueeze(0),
+            observation.unsqueeze(0),
+            policy_output.action.unsqueeze(0),
             state,
         )
         th.testing.assert_close(
-            decision.artifacts["log_prob"],
+            policy_output.log_prob,
             evaluation.log_prob.squeeze(0),
         )
 
@@ -46,7 +46,7 @@ class CarlRecurrentTests(unittest.TestCase):
         th.testing.assert_close(adapter.raw_state(packed), packed[:, 0])
 
     def test_reset_mask_restarts_policy_and_value_unrolls(self):
-        obs = th.randn(4, 2, self.env.obs_dim)
+        observation = th.randn(4, 2, self.env.obs_dim)
         action = th.zeros(4, 2, 7, dtype=th.long)
         state = th.randn(2, 16)
         reset = th.tensor(
@@ -54,21 +54,21 @@ class CarlRecurrentTests(unittest.TestCase):
         )
 
         policy_full = self.policy.evaluate_actions(
-            obs,
+            observation,
             action,
             state,
             reset=reset,
         ).log_prob
         policy_restart = self.policy.evaluate_actions(
-            obs[2:],
+            observation[2:],
             action[2:],
             th.zeros_like(state),
         ).log_prob
         th.testing.assert_close(policy_full[2:], policy_restart)
 
-        value_full = self.critic.evaluate_values(obs, state, reset=reset)
+        value_full = self.critic.evaluate_values(observation, state, reset=reset)
         value_restart = self.critic.evaluate_values(
-            obs[2:],
+            observation[2:],
             th.zeros_like(state),
         )
         th.testing.assert_close(value_full[2:], value_restart)

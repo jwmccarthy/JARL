@@ -11,7 +11,7 @@ from jarl.learn import (
     PPOLearner,
     PPOOptimizer,
     TrainDiscriminator,
-    TransformArtifact,
+    TransformRollout,
     unique_parameters,
 )
 from jarl.modules.operator import ValueFunction
@@ -25,9 +25,9 @@ from jarl.transform import DiscriminatorReward, GAE, NStepTarget
 def transition(value: float, num_envs: int = 2):
     scalar = th.full((num_envs,), value)
     return {
-        "obs": scalar[:, None],
-        "act": th.zeros(num_envs, dtype=th.long),
-        "rew": scalar,
+        "observation": scalar[:, None],
+        "action": th.zeros(num_envs, dtype=th.long),
+        "reward": scalar,
         "next_obs": (scalar + 1)[:, None],
         "terminated": th.zeros(num_envs, dtype=th.bool),
         "truncated": th.zeros(num_envs, dtype=th.bool),
@@ -43,7 +43,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(buffer.full)
         rollout = buffer.finish()
         th.testing.assert_close(
-            rollout.steps["rew"][:, 0],
+            rollout.steps["reward"][:, 0],
             th.tensor([0.0, 1.0, 2.0]),
         )
         with self.assertRaisesRegex(RuntimeError, "rollout is full"):
@@ -52,7 +52,10 @@ class RuntimeTests(unittest.TestCase):
         buffer.clear()
         self.assertEqual(buffer.position, 0)
         buffer.append(transition(4.0))
-        th.testing.assert_close(buffer.finish().steps["rew"], th.full((1, 2), 4.0))
+        th.testing.assert_close(
+            buffer.finish().steps["reward"],
+            th.full((1, 2), 4.0),
+        )
 
     def test_replay_samples_episode_safe_windows_after_wrap(self):
         replay = ReplayBuffer(capacity=3, num_envs=2)
@@ -62,14 +65,14 @@ class RuntimeTests(unittest.TestCase):
         windows = replay.sample_windows(batch_size=4, length=2)
         self.assertEqual(windows.shape[:2], (2, 4))
         th.testing.assert_close(
-            windows["rew"][1] - windows["rew"][0],
+            windows["reward"][1] - windows["reward"][0],
             th.ones(4),
         )
 
     def test_gae_handles_termination_and_time_order(self):
         batch = TensorBatch(
             {
-                "rew": th.tensor([[1.0], [1.0]]),
+                "reward": th.tensor([[1.0], [1.0]]),
                 "terminated": th.tensor([[False], [True]]),
                 "truncated": th.zeros(2, 1, dtype=th.bool),
                 "baseline_value": th.zeros(2, 1),
@@ -77,17 +80,23 @@ class RuntimeTests(unittest.TestCase):
             }
         )
         prepared = GAE(gamma=1.0, lambda_=1.0)(batch, None)
-        th.testing.assert_close(prepared["adv"], th.tensor([[2.0], [1.0]]))
-        th.testing.assert_close(prepared["ret"], prepared["adv"])
+        th.testing.assert_close(
+            prepared["advantage"],
+            th.tensor([[2.0], [1.0]]),
+        )
+        th.testing.assert_close(prepared["returns"], prepared["advantage"])
 
     def test_n_step_target_bootstraps_truncation_but_not_termination(self):
         base = {
-            "rew": th.ones(2, 2),
+            "reward": th.ones(2, 2),
             "next_obs": th.zeros(2, 2, 1),
             "terminated": th.tensor([[False, False], [True, False]]),
             "truncated": th.tensor([[False, False], [False, True]]),
         }
-        target = NStepTarget(lambda obs: th.full((len(obs),), 4.0), gamma=0.5)(
+        target = NStepTarget(
+            lambda observation: th.full((len(observation),), 4.0),
+            gamma=0.5,
+        )(
             TensorBatch(base),
             None,
         )
@@ -104,10 +113,10 @@ class RuntimeTests(unittest.TestCase):
         done = th.tensor([[False], [True], [False], [False]])
         batch = TensorBatch(
             {
-                "obs": th.arange(4.0).reshape(4, 1, 1),
+                "observation": th.arange(4.0).reshape(4, 1, 1),
                 "terminated": done,
                 "truncated": th.zeros_like(done),
-                "behavior_state": th.arange(4.0).reshape(4, 1, 1),
+                "policy_state": th.arange(4.0).reshape(4, 1, 1),
             }
         )
         sample = next(
@@ -124,32 +133,28 @@ class RuntimeTests(unittest.TestCase):
             th.tensor([False, False, True, False]),
         )
 
-    def test_learning_program_validates_and_preserves_stage_order(self):
+    def test_learning_program_preserves_stage_order(self):
         order = []
 
         class Stage:
-            def __init__(self, required, produced, name):
-                self.requires = frozenset(required)
-                self.produces = frozenset(produced)
+            def __init__(self, name, output=None):
                 self.name = name
+                self.output = output
 
             def run(self, workspace):
                 order.append(self.name)
-                for artifact in self.produces:
-                    workspace.publish(artifact, artifact)
+                if self.output:
+                    workspace.publish(self.output, self.output)
 
         program = LearningProgram(
             [
-                Stage({"source"}, {"rewarded"}, "reward"),
-                Stage({"rewarded"}, {"prepared"}, "prepare"),
-                Stage({"prepared"}, set(), "optimize"),
+                Stage("reward", "rewarded"),
+                Stage("prepare", "prepared"),
+                Stage("optimize"),
             ]
         )
         program.update(object())
         self.assertEqual(order, ["reward", "prepare", "optimize"])
-
-        with self.assertRaisesRegex(ValueError, "unavailable artifacts"):
-            LearningProgram([Stage({"missing"}, set(), "invalid")])
 
     def test_gaifo_stage_trains_discriminator_before_reward_materialization(self):
         class Discriminator(nn.Module):
@@ -160,11 +165,11 @@ class RuntimeTests(unittest.TestCase):
             def forward(self, pair):
                 return self.linear(th.cat(pair, dim=-1)).squeeze(-1)
 
-        class ExpertSource:
+        class ExpertBuffer:
             def sample(self, batch_size):
                 return TensorBatch(
                     {
-                        "obs": th.zeros(batch_size, 1),
+                        "observation": th.zeros(batch_size, 1),
                         "next_obs": th.zeros(batch_size, 1),
                     }
                 )
@@ -172,12 +177,9 @@ class RuntimeTests(unittest.TestCase):
         captured_reward = []
 
         class CaptureReward:
-            requires = frozenset({"rewarded"})
-            produces = frozenset()
-
             def run(self, workspace):
                 captured_reward.append(
-                    workspace.require("rewarded").steps["imitation_rew"]
+                    workspace.require("rewarded").steps["imitation_reward"]
                 )
 
         discriminator = Discriminator()
@@ -185,7 +187,7 @@ class RuntimeTests(unittest.TestCase):
         rollout = Rollout(
             TensorBatch(
                 {
-                    "obs": th.ones(4, 1, 1),
+                    "observation": th.ones(4, 1, 1),
                     "next_obs": th.ones(4, 1, 1) * 2,
                 }
             )
@@ -193,14 +195,14 @@ class RuntimeTests(unittest.TestCase):
         program = LearningProgram(
             [
                 TrainDiscriminator(
-                    source="source",
-                    expert_source=ExpertSource(),
+                    rollout="experience",
+                    expert_buffer=ExpertBuffer(),
                     discriminator=discriminator,
                     optimizer_step=OptimizerStep(discriminator, optimizer),
                     batch_size=2,
                 ),
-                TransformArtifact(
-                    source="source",
+                TransformRollout(
+                    rollout="experience",
                     output="rewarded",
                     transforms=(DiscriminatorReward(discriminator),),
                 ),
@@ -218,22 +220,22 @@ class RuntimeTests(unittest.TestCase):
         policy.model = nn.Linear(2, 2)
         critic = ValueFunction(nn.Identity(), nn.Identity())
         critic.model = nn.Linear(2, 1)
-        obs = th.randn(4, 2, 2)
+        observation = th.randn(4, 2, 2)
         next_obs = th.randn(4, 2, 2)
         with th.no_grad():
-            decision = policy.act(obs)
-            value = critic.value(obs)
+            policy_output = policy.act(observation)
+            value = critic.value(observation)
             next_value = critic.value(next_obs)
         rollout = Rollout(
             TensorBatch(
                 {
-                    "obs": obs,
-                    "act": decision.action,
-                    "rew": th.randn(4, 2),
+                    "observation": observation,
+                    "action": policy_output.action,
+                    "reward": th.randn(4, 2),
                     "next_obs": next_obs,
                     "terminated": th.zeros(4, 2, dtype=th.bool),
                     "truncated": th.zeros(4, 2, dtype=th.bool),
-                    "behavior_log_prob": decision.artifacts["log_prob"],
+                    "old_log_prob": policy_output.log_prob,
                     "policy_version": th.zeros(4, 2, dtype=th.long),
                     "baseline_value": value,
                     "baseline_next_value": next_value,
@@ -265,11 +267,11 @@ class RuntimeTests(unittest.TestCase):
             learner.update(rollout)
 
     def test_trainer_updates_full_and_partial_rollouts_without_overwrite(self):
-        source = RolloutBuffer(horizon=3, num_envs=2, device="cpu")
+        buffer = RolloutBuffer(horizon=3, num_envs=2, device="cpu")
 
         class Runner:
             n_envs = 2
-            behavior = object()
+            policy = object()
 
             def __init__(self):
                 self.index = 0
@@ -278,11 +280,11 @@ class RuntimeTests(unittest.TestCase):
                 return None
 
             def step(self):
-                source.append(transition(float(self.index)))
+                buffer.append(transition(float(self.index)))
                 self.index += 1
                 return EnvStep(
                     next_obs=None,
-                    collector_obs=None,
+                    observation=None,
                     reward=th.zeros(2),
                     terminated=th.zeros(2, dtype=th.bool),
                     truncated=th.zeros(2, dtype=th.bool),
@@ -294,7 +296,7 @@ class RuntimeTests(unittest.TestCase):
                 self.rollouts = []
 
             def update(self, rollout):
-                self.rollouts.append(rollout.steps["rew"].clone())
+                self.rollouts.append(rollout.steps["reward"].clone())
                 return {"Test": {"updates": 1.0}}
 
         class Logger:
@@ -310,7 +312,7 @@ class RuntimeTests(unittest.TestCase):
         learner = Learner()
         trainer = Trainer(
             Runner(),
-            source,
+            buffer,
             learner,
             OnPolicySchedule(),
             logger=Logger(),

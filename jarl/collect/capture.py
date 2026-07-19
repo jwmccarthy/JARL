@@ -1,74 +1,50 @@
 from dataclasses import dataclass
-from typing import Protocol
-
 import torch as th
 
-from jarl.data.records import ActionDecision, EnvStep
+from jarl.data.records import EnvStep, PolicyOutput
 
 
 @dataclass
 class CaptureContext:
-    obs: th.Tensor
-    state_in: th.Tensor | None
-    decision: ActionDecision
-    env_step: EnvStep
+    observation:   th.Tensor
+    state:         th.Tensor | None
+    policy_output: PolicyOutput
+    env_step:      EnvStep
 
 
-class Capture(Protocol):
-    produces: frozenset[str]
-
+class LogProbCapture:
     def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
-        ...
-
-
-class DecisionArtifact:
-    def __init__(self, artifact: str, field: str) -> None:
-        self.artifact = artifact
-        self.field = field
-        self.produces = frozenset({field})
-
-    def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
-        try:
-            value = context.decision.artifacts[self.artifact]
-        except KeyError:
-            raise KeyError(f"action decision has no {self.artifact!r} artifact") from None
-        return {self.field: value}
+        if context.policy_output.log_prob is None:
+            raise ValueError("policy did not produce an action log probability")
+        return {"old_log_prob": context.policy_output.log_prob}
 
 
 class RecurrentStateCapture:
-    produces = frozenset({"behavior_state"})
-
     def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
-        if context.state_in is None:
+        if context.state is None:
             raise ValueError("cannot capture an empty recurrent state")
-        return {"behavior_state": context.state_in}
+        return {"policy_state": context.state}
 
 
-class BehaviorVersionCapture:
-    produces = frozenset({"policy_version"})
-
-    def __init__(self, behavior) -> None:
-        self.behavior = behavior
+class PolicyVersionCapture:
+    def __init__(self, policy) -> None:
+        self.policy = policy
 
     def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
         boundary = th.as_tensor(
             context.env_step.terminated,
-            device=context.obs.device,
+            device=context.observation.device,
         )
         return {
             "policy_version": th.full_like(
                 boundary,
-                self.behavior.version,
+                self.policy.version,
                 dtype=th.long,
             )
         }
 
 
 class ValueCapture:
-    produces = frozenset(
-        {"baseline_value", "baseline_next_value", "value_version"}
-    )
-
     def __init__(self, estimator) -> None:
         self.estimator = estimator
 
@@ -76,18 +52,21 @@ class ValueCapture:
     def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
         next_obs = th.as_tensor(
             context.env_step.next_obs,
-            device=context.obs.device,
+            device=context.observation.device,
         )
         return {
-            "baseline_value": self.estimator.value(context.obs, context.state_in),
+            "baseline_value": self.estimator.value(
+                context.observation,
+                context.state,
+            ),
             "baseline_next_value": self.estimator.value(
                 next_obs,
-                context.decision.next_state,
+                context.policy_output.next_state,
             ),
             "value_version": th.full_like(
                 th.as_tensor(
                     context.env_step.terminated,
-                    device=context.obs.device,
+                    device=context.observation.device,
                 ),
                 self.estimator.version,
                 dtype=th.long,
@@ -95,31 +74,20 @@ class ValueCapture:
         }
 
 
-def validate_captures(captures: list[Capture] | tuple[Capture, ...]) -> None:
-    produced: set[str] = set()
-    for capture in captures:
-        duplicate = produced & capture.produces
-        if duplicate:
-            raise ValueError(f"duplicate capture fields: {sorted(duplicate)}")
-        produced.update(capture.produces)
-
-
 def build_record(
     context: CaptureContext,
-    captures: list[Capture] | tuple[Capture, ...],
+    captures,
 ) -> dict[str, th.Tensor]:
     record = {
-        "obs": context.obs,
-        "act": context.decision.action,
-        "rew": context.env_step.reward,
+        "observation": context.observation,
+        "action": context.policy_output.action,
+        "reward": context.env_step.reward,
         "next_obs": context.env_step.next_obs,
         "terminated": context.env_step.terminated,
         "truncated": context.env_step.truncated,
     }
+
     for capture in captures:
-        fields = capture(context)
-        duplicate = record.keys() & fields.keys()
-        if duplicate:
-            raise ValueError(f"capture would overwrite fields: {sorted(duplicate)}")
-        record.update(fields)
+        record.update(capture(context))
+
     return record

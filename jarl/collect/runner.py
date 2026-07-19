@@ -1,18 +1,17 @@
 import torch as th
 
-from jarl.collect.behavior import Behavior
-from jarl.collect.capture import CaptureContext, build_record, validate_captures
+from jarl.collect.capture import CaptureContext, build_record
 from jarl.data.records import EnvStep
+from jarl.modules.policy import Policy
 
 
 class Runner:
-    def __init__(self, env, behavior: Behavior, sink, captures=()) -> None:
+    def __init__(self, env, policy: Policy, buffer, captures=()) -> None:
         self.env = env
-        self.behavior = behavior
-        self.sink = sink
+        self.policy = policy
+        self.buffer = buffer
         self.captures = tuple(captures)
-        validate_captures(self.captures)
-        self.obs = None
+        self.observation = None
         self.state = None
 
     @property
@@ -20,23 +19,26 @@ class Runner:
         return self.env.n_envs
 
     def reset(self):
-        self.obs = self.env.reset()
-        self.state = self.behavior.initial_state(self.n_envs)
-        return self.obs
+        self.observation = self.env.reset()
+        self.state = self.policy.initial_state(self.n_envs)
+        return self.observation
 
     @th.no_grad()
     def step(self) -> EnvStep:
-        if self.obs is None:
+        if self.observation is None:
             raise RuntimeError("runner must be reset before stepping")
 
-        obs = th.as_tensor(self.obs, device=self.behavior.device)
-        decision = self.behavior.act(obs, self.state)
-        env_step = self.env.step(decision.action)
-        context = CaptureContext(obs, self.state, decision, env_step)
-        self.sink.append(build_record(context, self.captures))
+        observation = th.as_tensor(
+            self.observation,
+            device=self.policy.device,
+        )
+        policy_output = self.policy.act(observation, self.state)
+        env_step = self.env.step(policy_output.action)
+        context = CaptureContext(observation, self.state, policy_output, env_step)
+        self.buffer.append(build_record(context, self.captures))
 
-        self.obs = env_step.collector_obs
-        self.state = _reset_state(decision.next_state, env_step.done)
+        self.observation = env_step.observation
+        self.state = _reset_state(policy_output.next_state, env_step.done)
         return env_step
 
 

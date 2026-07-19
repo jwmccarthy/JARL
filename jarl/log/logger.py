@@ -1,9 +1,7 @@
 import numpy as np
 
 from collections import defaultdict
-from typing import List, Any, Mapping, Generator
-
-from jarl.log.progress import Progress
+from typing import Any, Generator, List, Mapping
 
 
 class Logger:
@@ -25,27 +23,37 @@ class Logger:
 
     def episode(self, t: int, info: Mapping[str, List[Any]]) -> None:
         self.step = t
+
         for key, values in info.items():
             self.episode_data[key].extend(values)
+
         new_info = dict(global_t=t)
+
         for key, val in self.episode_data.items():
             if info[key]:
                 new_info |= {key: np.mean(val[-50:])}
+
         update = dict(Episode=new_info)
-        self.progress_bar.update(**update)
         self._write(update, t)
 
     def update(self, info: Mapping[str, Any], step: int = None) -> None:
         if step is not None:
             self.step = step
-        self.progress_bar.update(**info)
+
         self._write(info, self.step)
 
-    def progress(self, steps: int, **kwargs) -> Generator[int, None, None]:
-        self.progress_bar = Progress(steps, **kwargs)
+    def progress(self, updates: int) -> Generator[int, None, None]:
         try:
-            for t in self.progress_bar:
-                yield t
+            for update in range(updates):
+                yield update
+                print(
+                    f"\rUpdate {update + 1:,}/{updates:,} | "
+                    f"Global ticks {self.step:,}",
+                    end="",
+                    flush=True,
+                )
         finally:
+            print()
+
             if self.writer:
                 self.writer.close()

@@ -278,7 +278,7 @@ def simulate(
                 )
             actions = torch.stack((blue_action, orange_action), dim=1).flatten(0, 1)
             env_step = env.step(actions)
-            observations = env_step.collector_obs
+            observations = env_step.observation
             tick += tick_skip
 
             goal = int(env_step.info["goal"].view(1, 2)[0, 0].item())

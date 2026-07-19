@@ -15,16 +15,16 @@ class EpisodeStatsEnv(gym.Wrapper):
     def reset(self, seed: int = None, **kwargs) -> Any:
         self.reward = self.length = 0
         return super().reset(seed=seed, **kwargs)
-    
-    def step(self, act: np.ndarray):
-        obs, rew, trm, trc, _ = super().step(act)
-        self.reward += rew
+
+    def step(self, action: np.ndarray):
+        observation, reward, terminated, truncated, _ = super().step(action)
+        self.reward += reward
         self.length += 1
         info = DotDict()
-        if np.logical_or(trm, trc):
-            info.update(rew=self.reward, len=self.length)
-        return obs, rew, trm, trc, info
-    
+        if np.logical_or(terminated, truncated):
+            info.update(reward=self.reward, length=self.length)
+        return observation, reward, terminated, truncated, info
+
 
 class ReshapeImageEnv(gym.Wrapper):
 
@@ -44,9 +44,9 @@ class ReshapeImageEnv(gym.Wrapper):
         )
 
     def reset(self, seed: int = None, **kwargs) -> Any:
-        obs, info = super().reset(seed=seed, **kwargs)
-        return obs.reshape(self.observation_space.shape), info
-    
-    def step(self, act: np.ndarray):
-        obs, *rest = super().step(act)
-        return obs.reshape(self.observation_space.shape), *rest
+        observation, info = super().reset(seed=seed, **kwargs)
+        return observation.reshape(self.observation_space.shape), info
+
+    def step(self, action: np.ndarray):
+        observation, *rest = super().step(action)
+        return observation.reshape(self.observation_space.shape), *rest

@@ -10,7 +10,7 @@ from torch.distributions import (
 from typing import Self
 from abc import ABC, abstractmethod
 
-from jarl.data.records import ActionDecision, Evaluation
+from jarl.data.records import Evaluation, PolicyOutput
 from jarl.envs.gym import SyncGymEnv
 from jarl.envs.space import MultiDiscreteSpace
 from jarl.modules.encoder.core import Encoder
@@ -20,8 +20,8 @@ from jarl.modules.base import CompositeNet
 class Policy(CompositeNet, ABC):
 
     def __init__(
-        self, 
-        head: Encoder, 
+        self,
+        head: Encoder,
         body: nn.Module,
         foot: nn.Module = None
     ) -> None:
@@ -34,38 +34,39 @@ class Policy(CompositeNet, ABC):
         return None
 
     @abstractmethod
-    def dist(self, obs: th.Tensor) -> Distribution:
+    def dist(self, observation: th.Tensor) -> Distribution:
         ...
 
     @abstractmethod
-    def action(self, obs: th.Tensor) -> th.Tensor:
+    def action(self, observation: th.Tensor) -> th.Tensor:
         ...
 
     @abstractmethod
-    def sample(self, obs: th.Tensor) -> th.Tensor:
+    def sample(self, observation: th.Tensor) -> th.Tensor:
         ...
 
     def act(
         self,
-        obs: th.Tensor,
+        observation: th.Tensor,
         state: th.Tensor | None = None,
         *,
         deterministic: bool = False,
-    ) -> ActionDecision:
+    ) -> PolicyOutput:
         if state is not None:
             raise ValueError("feed-forward policies do not accept recurrent state")
         if deterministic:
-            return ActionDecision(self.action(obs))
-        distribution = self.dist(obs)
+            return PolicyOutput(self.action(observation))
+
+        distribution = self.dist(observation)
         action = self._sample(distribution)
-        return ActionDecision(
-            action,
-            artifacts={"log_prob": self._logprob(distribution, action)},
+        return PolicyOutput(
+            action=action,
+            log_prob=self._logprob(distribution, action),
         )
 
     def evaluate_actions(
         self,
-        obs: th.Tensor,
+        observation: th.Tensor,
         action: th.Tensor,
         state: th.Tensor | None = None,
         *,
@@ -75,7 +76,7 @@ class Policy(CompositeNet, ABC):
             raise ValueError("feed-forward policies do not accept recurrent state")
         if reset is not None:
             raise ValueError("feed-forward policies do not accept reset masks")
-        distribution = self.dist(obs)
+        distribution = self.dist(observation)
         return Evaluation(
             log_prob=self._logprob(distribution, action),
             entropy=self._entropy(distribution),
@@ -92,34 +93,34 @@ class Policy(CompositeNet, ABC):
     def _entropy(self, distribution: Distribution) -> th.Tensor:
         return distribution.entropy()
 
-    def logprob(self, obs: th.Tensor, act: th.Tensor) -> th.Tensor:
-        return self._logprob(self.dist(obs), act)
-    
-    def entropy(self, obs: th.Tensor) -> th.Tensor:
-        return self._entropy(self.dist(obs))
+    def logprob(self, observation: th.Tensor, action: th.Tensor) -> th.Tensor:
+        return self._logprob(self.dist(observation), action)
 
-    def forward(self, obs: th.Tensor, sample: bool = True) -> th.Tensor:
-        return self.sample(obs) if sample else self.action(obs)
-    
+    def entropy(self, observation: th.Tensor) -> th.Tensor:
+        return self._entropy(self.dist(observation))
+
+    def forward(self, observation: th.Tensor, sample: bool = True) -> th.Tensor:
+        return self.sample(observation) if sample else self.action(observation)
+
 
 class CategoricalPolicy(Policy):
 
     def __init__(
-        self, 
-        head: nn.Module, 
+        self,
+        head: nn.Module,
         body: nn.Module,
         foot: nn.Module = None
     ) -> None:
         super().__init__(head, body, foot)
 
-    def dist(self, obs: th.Tensor) -> Distribution:
-        return Categorical(logits=self.model(obs))
-    
-    def action(self, obs: th.Tensor) -> th.Tensor:
-        return th.argmax(self.model(obs), dim=-1)
-    
-    def sample(self, obs: th.Tensor) -> th.Tensor:
-        return self.dist(obs).sample()
+    def dist(self, observation: th.Tensor) -> Distribution:
+        return Categorical(logits=self.model(observation))
+
+    def action(self, observation: th.Tensor) -> th.Tensor:
+        return th.argmax(self.model(observation), dim=-1)
+
+    def sample(self, observation: th.Tensor) -> th.Tensor:
+        return self.dist(observation).sample()
 
 
 class MultiCategoricalPolicy(Policy):
@@ -134,18 +135,18 @@ class MultiCategoricalPolicy(Policy):
         )
         return super().build(env)
 
-    def dist(self, obs: th.Tensor) -> list[Distribution]:
-        logits = self.model(obs).split(self.sizes, dim=-1)
+    def dist(self, observation: th.Tensor) -> list[Distribution]:
+        logits = self.model(observation).split(self.sizes, dim=-1)
         return [Categorical(logits=value) for value in logits]
 
-    def action(self, obs: th.Tensor) -> th.Tensor:
+    def action(self, observation: th.Tensor) -> th.Tensor:
         actions = th.stack(
-            [dist.logits.argmax(dim=-1) for dist in self.dist(obs)], dim=-1
+            [dist.logits.argmax(dim=-1) for dist in self.dist(observation)], dim=-1
         )
         return actions.reshape(*actions.shape[:-1], *self.action_shape)
 
-    def sample(self, obs: th.Tensor) -> th.Tensor:
-        return self._sample(self.dist(obs))
+    def sample(self, observation: th.Tensor) -> th.Tensor:
+        return self._sample(self.dist(observation))
 
     def _sample(self, distribution: list[Distribution]) -> th.Tensor:
         actions = th.stack([dist.sample() for dist in distribution], dim=-1)
@@ -165,13 +166,13 @@ class MultiCategoricalPolicy(Policy):
         return th.stack(
             [dist.entropy() for dist in distribution], dim=-1
         ).sum(-1)
-    
+
 
 class DiagonalGaussianPolicy(Policy):
 
     def __init__(
-        self, 
-        head: nn.Module, 
+        self,
+        head: nn.Module,
         body: nn.Module,
         foot: nn.Module = None
     ) -> None:
@@ -182,12 +183,12 @@ class DiagonalGaussianPolicy(Policy):
         log_std = th.zeros((env.act_space.flat_dim))
         self.log_std = nn.Parameter(log_std)
         return self
-    
-    def dist(self, obs: th.Tensor) -> Distribution:
-        loc = self.model(obs)
+
+    def dist(self, observation: th.Tensor) -> Distribution:
+        loc = self.model(observation)
         std = self.log_std.expand_as(loc).exp()
         return Normal(loc, std)
-    
+
     def _logprob(
         self, distribution: Distribution, action: th.Tensor
     ) -> th.Tensor:
@@ -195,19 +196,19 @@ class DiagonalGaussianPolicy(Policy):
 
     def _entropy(self, distribution: Distribution) -> th.Tensor:
         return super()._entropy(distribution).sum(-1)
-    
-    def action(self, obs: th.Tensor) -> th.Tensor:
-        return self.model(obs)
-    
-    def sample(self, obs: th.Tensor) -> th.Tensor:
-        return self.dist(obs).sample()
-    
+
+    def action(self, observation: th.Tensor) -> th.Tensor:
+        return self.model(observation)
+
+    def sample(self, observation: th.Tensor) -> th.Tensor:
+        return self.dist(observation).sample()
+
 
 class NoisyContinuousPolicy(Policy):
 
     def __init__(
-        self, 
-        head: nn.Module, 
+        self,
+        head: nn.Module,
         body: nn.Module,
         foot: nn.Module = None,
         scale: float = 0.1
@@ -215,24 +216,24 @@ class NoisyContinuousPolicy(Policy):
         super().__init__(head, body, foot)
         self.scale = scale
 
-    def dist(self, obs: th.Tensor) -> Distribution:
+    def dist(self, observation: th.Tensor) -> Distribution:
         raise NotImplementedError("dist() not supported")
-    
-    def action(self, obs: th.Tensor) -> th.Tensor:
-        return self.model(obs)
-    
-    def sample(self, obs: th.Tensor) -> th.Tensor:
-        act = self.model(obs)
-        return act + th.randn_like(act) * self.scale
+
+    def action(self, observation: th.Tensor) -> th.Tensor:
+        return self.model(observation)
+
+    def sample(self, observation: th.Tensor) -> th.Tensor:
+        action = self.model(observation)
+        return action + th.randn_like(action) * self.scale
 
     def act(
         self,
-        obs: th.Tensor,
+        observation: th.Tensor,
         state: th.Tensor | None = None,
         *,
         deterministic: bool = False,
-    ) -> ActionDecision:
+    ) -> PolicyOutput:
         if state is not None:
             raise ValueError("feed-forward policies do not accept recurrent state")
-        action = self.action(obs) if deterministic else self.sample(obs)
-        return ActionDecision(action)
+        action = self.action(observation) if deterministic else self.sample(observation)
+        return PolicyOutput(action)
