@@ -24,6 +24,24 @@ class ValueFunction(CompositeNet):
     
     def forward(self, x: th.Tensor) -> th.Tensor:
         return super().forward(x).squeeze(-1)
+
+    def value(
+        self, obs: th.Tensor, state: th.Tensor | None = None
+    ) -> th.Tensor:
+        if state is not None:
+            raise ValueError("feed-forward value functions do not accept recurrent state")
+        return self(obs)
+
+    def evaluate_values(
+        self,
+        obs: th.Tensor,
+        state: th.Tensor | None = None,
+        *,
+        reset: th.Tensor | None = None,
+    ) -> th.Tensor:
+        if reset is not None:
+            raise ValueError("feed-forward value functions do not accept reset masks")
+        return self.value(obs, state)
     
 
 class DiscreteQFunction(CompositeNet):

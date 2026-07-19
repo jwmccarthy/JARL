@@ -1,4 +1,3 @@
-import numpy as np
 import torch.nn as nn
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LinearLR
@@ -7,7 +6,23 @@ import gymnasium as gym
 
 from jarl.envs.gym import SyncGymEnv
 
-from jarl.data.buffer import LazyArrayBuffer
+from jarl.collect import (
+    BehaviorVersionCapture,
+    DecisionArtifact,
+    Runner,
+    ValueCapture,
+)
+from jarl.learn import (
+    OptimizerStep,
+    PPOConfig,
+    PPOLearner,
+    PPOOptimizer,
+    unique_parameters,
+)
+from jarl.sample import RolloutMinibatches
+from jarl.store import RolloutBuffer
+from jarl.runtime import Evaluator, OnPolicySchedule, Trainer
+from jarl.transform import GAE, SignRewards
 
 from jarl.modules.core import MLP, CNN
 from jarl.modules.utils import init_layer
@@ -15,27 +30,10 @@ from jarl.modules.operator import ValueFunction
 from jarl.modules.policy import CategoricalPolicy
 from jarl.modules.encoder.image import ImageEncoder
 
-from jarl.train.update.ppo import PPOUpdate
-from jarl.train.sample.batch import BatchSampler
-from jarl.train.optim import Optimizer, Scheduler
-
-from jarl.train.loop import TrainLoop
-from jarl.train.graph import TrainGraph
-from jarl.train.evaluate import Evaluator
-
-from jarl.train.modify.compute import (
-    ComputeValues,
-    ComputeLogProbs,
-    ComputeAdvantages,
-    ComputeReturns
-)
-from jarl.train.modify.reward import SignRewards
-
 from jarl.envs.wrappers import EpisodeStatsEnv, ReshapeImageEnv
 
 from stable_baselines3.common.atari_wrappers import (
     EpisodicLifeEnv,
-    FireResetEnv,
     MaxAndSkipEnv,
     NoopResetEnv,
 )
@@ -84,27 +82,53 @@ critic = ValueFunction(
     )
 ).build(env).to("cuda")
 
-ppo = (
-    TrainGraph(
-        PPOUpdate(128, policy, critic, clip=0.1,
-                  optimizer=Optimizer(Adam, lr=2.5e-4),
-                  scheduler=Scheduler(LinearLR, start_factor=1.0, end_factor=0.0)),
-        BatchSampler(256, num_epoch=4)
-    )
-    .add_modifier(ComputeAdvantages())
-    .add_modifier(ComputeLogProbs(policy))
-    .add_modifier(ComputeReturns())
-    .add_modifier(ComputeValues(critic))
-    .add_modifier(SignRewards())
-    .compile()
+buffer = RolloutBuffer(128, env.n_envs, device="cuda")
+runner = Runner(
+    env,
+    policy,
+    buffer,
+    captures=(
+        DecisionArtifact("log_prob", "behavior_log_prob"),
+        BehaviorVersionCapture(policy),
+        ValueCapture(critic),
+    ),
 )
-
-buffer = LazyArrayBuffer(128, device="cuda")
+training_vector_steps = int(1.25e6)
+parameters = unique_parameters((policy, critic))
+optimizer = Adam(parameters, lr=2.5e-4)
+ppo = PPOLearner(
+    transforms=(SignRewards(), GAE()),
+    optimizer=PPOOptimizer(
+        policy,
+        critic,
+        RolloutMinibatches(batch_size=256, epochs=4),
+        OptimizerStep(
+            (policy, critic),
+            optimizer,
+            max_grad_norm=0.5,
+            scheduler=LinearLR(
+                optimizer,
+                start_factor=1.0,
+                end_factor=0.0,
+                total_iters=(
+                    training_vector_steps + buffer.horizon - 1
+                )
+                // buffer.horizon,
+            ),
+        ),
+        PPOConfig(clip=0.1),
+    ),
+)
 
 eval_env = SyncGymEnv(make_env("ale_py:ALE/Pacman-v5", 
                                frameskip=1, 
                                repeat_action_probability=0.), 1)
 
-loop = TrainLoop(env, buffer, policy, graphs=[ppo],
-                 checkpt=Evaluator(eval_env, policy, path="checkpoints/pacman/ppo"))
-loop.run(int(1.25e6))
+trainer = Trainer(
+    runner,
+    buffer,
+    ppo,
+    OnPolicySchedule(),
+    checkpoint=Evaluator(eval_env, policy, path="checkpoints/pacman/ppo"),
+)
+trainer.run(training_vector_steps * env.n_envs)

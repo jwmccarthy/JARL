@@ -22,6 +22,10 @@ class CompositeNet(nn.Module):
         self.body = body
         self.foot = foot
         self.device = "cpu"
+        self.version = 0
+
+    def increment_version(self) -> None:
+        self.version += 1
 
     def to(self, device: str) -> Self:
         self.device = device

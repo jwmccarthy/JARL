@@ -1,7 +1,7 @@
 import torch.nn as nn
 
 from typing import Self
-from abc import ABC, abstractmethod
+from abc import ABC
 
 from jarl.envs.gym import SyncGymEnv
 

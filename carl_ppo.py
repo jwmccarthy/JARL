@@ -3,6 +3,7 @@
 
 import argparse
 from collections import deque
+from datetime import datetime
 import json
 from pathlib import Path
 
@@ -16,18 +17,31 @@ import trueskill
 
 import carl
 
-from jarl.data.multi import MultiTensor
+from jarl.collect import (
+    BehaviorVersionCapture,
+    CaptureContext,
+    DecisionArtifact,
+    RecurrentStateCapture,
+    ValueCapture,
+    build_record,
+)
+from jarl.data.records import ActionDecision, EnvStep, Evaluation
 from jarl.envs.space import torch_space
+from jarl.learn import (
+    OptimizerStep,
+    PPOConfig,
+    PPOLearner,
+    PPOOptimizer,
+    unique_parameters,
+)
 from jarl.log.logger import Logger
 from jarl.modules.utils import init_layer
-from jarl.train.graph import TrainGraph
-from jarl.train.modify.compute import (
-    ComputeAdvantages,
-    ComputeReturns,
-)
-from jarl.train.optim import Optimizer
-from jarl.train.sample.sequence import SequenceSampler
-from jarl.train.update.base import GradientUpdate
+from jarl.sample import RecurrentRolloutMinibatches
+from jarl.store import RolloutBuffer
+from jarl.transform import GAE
+
+
+ACTION_SIZES = (3, 3, 3, 2, 2, 3, 2)
 
 
 class CarlEnv:
@@ -40,15 +54,11 @@ class CarlEnv:
         n_orange: int,
         seed: int,
         max_ticks: int,
-        goal_reward_scale: float,
-        ball_speed_reward_scale: float,
-        ball_touch_reward_scale: float,
-        ball_goal_velocity_reward_scale: float,
-        ball_distance_reward_scale: float,
         reward_scale: float,
         tick_skip: int,
+        team_spirit: float = 1.0,
     ) -> None:
-        self.env = carl.Env(n_sim, n_blue, n_orange, seed)
+        self.env = carl.Env(n_sim, n_blue, n_orange, seed, tick_skip)
         self.env.max_ticks = max_ticks
         self.n_sim = n_sim
         self.n_blue = n_blue
@@ -57,20 +67,23 @@ class CarlEnv:
         self.n_agents = n_sim * self.n_cars
         self.n_envs = n_sim * n_blue
         self.max_ticks = max_ticks
-        self.goal_reward_scale = goal_reward_scale
-        self.ball_speed_reward_scale = ball_speed_reward_scale
-        self.ball_touch_reward_scale = ball_touch_reward_scale
-        self.ball_goal_velocity_reward_scale = ball_goal_velocity_reward_scale
-        self.ball_distance_reward_scale = ball_distance_reward_scale
         self.reward_scale = reward_scale
         self.tick_skip = tick_skip
-        self.elapsed_ticks = 0
-        self.score = torch.zeros(n_sim, device="cuda")
-        self.touching = torch.zeros(
+        self.team_spirit = team_spirit
+        self.previous_boost = torch.zeros((n_sim, self.n_cars), device="cuda")
+        self.previous_demoed = torch.zeros(
             (n_sim, self.n_cars), dtype=torch.bool, device="cuda"
         )
-        self.ball_distance = torch.zeros(
-            (n_sim, self.n_cars), device="cuda"
+        self.touch_decay = torch.ones((n_sim, self.n_cars), device="cuda")
+        self.last_toucher = torch.full((n_sim,), -1, dtype=torch.long, device="cuda")
+        self.previous_ball_distance = torch.zeros((n_sim, self.n_cars), device="cuda")
+        self.previous_actions = torch.zeros(
+            (n_sim, self.n_cars, len(ACTION_SIZES)),
+            dtype=torch.long,
+            device="cuda",
+        )
+        self.has_previous_action = torch.zeros(
+            (n_sim, self.n_cars), dtype=torch.bool, device="cuda"
         )
         self.team_sign = torch.cat(
             (
@@ -90,8 +103,11 @@ class CarlEnv:
             )
         self.view_order = torch.tensor(view_order, device="cuda")
 
+        # 29 global values, 8 relative values for every other player, and
+        # 26 values per player. CARL does not expose boost-pad or demo timers.
+        self.obs_dim = 21 + 34 * self.n_cars
         obs = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.env.obs_dim,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32
         )
         act = gym.spaces.MultiDiscrete(
             np.asarray(self.env.action_nvec[0], dtype=np.int32), dtype=np.int32
@@ -99,7 +115,7 @@ class CarlEnv:
         self.obs_space = torch_space(obs, device="cuda")
         self.act_space = torch_space(act, device="cuda")
 
-    def _obs(self, source=None) -> torch.Tensor:
+    def raw_state(self, source=None) -> torch.Tensor:
         if source is None:
             source = self.env.get_obs()
         raw = (
@@ -107,6 +123,13 @@ class CarlEnv:
             if isinstance(source, torch.Tensor)
             else torch.from_dlpack(source).clone()
         )
+        if raw.ndim == 3:
+            # Blue observer zero orders cars as the global blue-then-orange state.
+            raw = raw[:, 0]
+        return raw
+
+    def _obs(self, source=None) -> torch.Tensor:
+        raw = self.raw_state(source)
         ball = raw[:, None, :9].expand(-1, self.n_cars, -1).clone()
         cars = raw[:, 9:].view(self.n_sim, self.n_cars, 21)
         cars = cars[:, self.view_order].clone()
@@ -123,102 +146,259 @@ class CarlEnv:
         orange_cars[..., 9:11].neg_()
         orange_cars[..., 12:14].neg_()
 
-        # CARL observations are raw physics units. Scale each documented field
-        # to keep the MLP inputs in a useful range.
-        ball[..., 0:3] /= 6000.0
-        ball[..., 3:6] /= 6000.0
-        ball[..., 6:9] /= 6.0
-        cars[..., 0:3] /= 6000.0
-        cars[..., 3:6] /= 2300.0
-        cars[..., 6:9] /= 6.0
-        cars[..., 15] /= 100.0
-        return torch.cat((ball, cars.flatten(2)), dim=-1).flatten(0, 1)
+        ball_position = ball[..., 0:3]
+        ball_velocity = ball[..., 3:6]
+        car_position = cars[..., 0:3]
+        car_velocity = cars[..., 3:6]
+        car_angular_velocity = cars[..., 6:9]
+        forward = cars[..., 9:12]
+        up = cars[..., 12:15]
 
-    def _ball_distance(self, raw: torch.Tensor) -> torch.Tensor:
-        ball = raw[:, None, :3]
-        cars = raw[:, 9:].view(self.n_sim, self.n_cars, 21)[..., :3]
-        return (cars - ball).norm(dim=-1)
+        yaw = torch.atan2(forward[..., 1], forward[..., 0])
+        pitch = torch.asin(forward[..., 2].clamp(-1.0, 1.0))
+        sin_roll = up[..., 1] * yaw.cos() - up[..., 0] * yaw.sin()
+        cos_roll = up[..., 2] / pitch.cos().clamp_min(1e-6)
+        roll = torch.atan2(sin_roll, cos_roll)
+        rotation = torch.stack((pitch, yaw, roll), dim=-1) / torch.pi
+
+        ball_delta = ball_position[:, :, None, :] - car_position
+        velocity_to_ball = ball_velocity[:, :, None, :] - car_velocity
+        speed = car_velocity.norm(dim=-1, keepdim=True)
+        on_ground = cars[..., 16:17].bool()
+        demoed = cars[..., 17:18].bool()
+        has_flip = on_ground | ~(cars[..., 18:19].bool() | cars[..., 19:20].bool())
+        player_features = torch.cat(
+            (
+                car_position / 6000.0,
+                car_velocity / 2300.0,
+                speed / 2300.0,
+                car_angular_velocity / 6.0,
+                rotation,
+                (speed >= 2200.0).float(),
+                ball_delta / 6000.0,
+                ball_delta.norm(dim=-1, keepdim=True) / 6000.0,
+                velocity_to_ball / 4600.0,
+                velocity_to_ball.norm(dim=-1, keepdim=True) / 4600.0,
+                (~demoed).float(),
+                cars[..., 15:16] / 100.0,
+                on_ground.float(),
+                has_flip.float(),
+            ),
+            dim=-1,
+        )
+
+        relative_position = car_position[..., 1:, :] - car_position[..., :1, :]
+        relative_velocity = car_velocity[..., 1:, :] - car_velocity[..., :1, :]
+        relative_players = torch.cat(
+            (
+                relative_position / 6000.0,
+                relative_position.norm(dim=-1, keepdim=True) / 6000.0,
+                relative_velocity / 4600.0,
+                relative_velocity.norm(dim=-1, keepdim=True) / 4600.0,
+            ),
+            dim=-1,
+        ).flatten(2)
+
+        previous_action = torch.cat(
+            [
+                torch.nn.functional.one_hot(self.previous_actions[..., index], size)
+                for index, size in enumerate(ACTION_SIZES)
+            ],
+            dim=-1,
+        ).float()
+        previous_action *= self.has_previous_action[..., None]
+        previous_action = torch.cat(
+            (previous_action, self.has_previous_action[..., None].float()), dim=-1
+        )
+        game_features = torch.cat(
+            (
+                ball_position / 6000.0,
+                ball_velocity / 6000.0,
+                ball_velocity.norm(dim=-1, keepdim=True) / 6000.0,
+                ball[..., 6:9] / 6.0,
+                previous_action,
+                relative_players,
+            ),
+            dim=-1,
+        )
+        observation = torch.cat((game_features, player_features.flatten(2)), dim=-1)
+        return observation.flatten(0, 1)
+
+    @staticmethod
+    def _cosine(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        return (
+            torch.nn.functional.normalize(a, dim=-1)
+            * torch.nn.functional.normalize(b, dim=-1)
+        ).sum(dim=-1)
+
+    def _reward(
+        self,
+        raw: torch.Tensor,
+        score_delta: torch.Tensor,
+        touch: torch.Tensor,
+        touch_height: torch.Tensor,
+        episode_done: torch.Tensor,
+    ) -> torch.Tensor:
+        ball_pos = raw[:, None, :3]
+        ball_vel = raw[:, None, 3:6]
+        cars = raw[:, 9:].view(self.n_sim, self.n_cars, 21)
+        car_pos = cars[..., :3]
+        car_vel = cars[..., 3:6]
+        car_forward = cars[..., 9:12]
+        boost = cars[..., 15].clamp(0.0, 100.0)
+        demoed = cars[..., 17].bool()
+        car_to_ball = ball_pos - car_pos
+        distance = car_to_ball.norm(dim=-1)
+
+        scoring_team = torch.where(
+            score_delta[:, None] > 0,
+            self.team_sign[None, :] > 0,
+            self.team_sign[None, :] < 0,
+        ) & (score_delta[:, None] != 0)
+        scorer = torch.nn.functional.one_hot(
+            self.last_toucher.clamp_min(0), self.n_cars
+        ).bool()
+        valid_scorer = (scorer & scoring_team).any(dim=1, keepdim=True)
+        scorer = torch.where(valid_scorer, scorer & scoring_team, scoring_team)
+        goal_scored = scorer.float() * (
+            1.0 + 0.5 * ball_vel.norm(dim=-1).clamp_max(6000.0) / 6000.0
+        )
+        boost_difference = boost.sqrt() / 10.0 - self.previous_boost.sqrt() / 10.0
+        boost_difference *= (~episode_done)[:, None]
+        ball_touch = (
+            touch.float()
+            * self.touch_decay
+            * ((touch_height + 91.25).clamp_min(0.0) / 182.5).pow(0.2836)
+        )
+
+        new_demo = demoed & ~self.previous_demoed
+        demo = torch.cat(
+            (
+                new_demo[:, self.n_blue :]
+                .any(dim=1, keepdim=True)
+                .expand(-1, self.n_blue),
+                new_demo[:, : self.n_blue]
+                .any(dim=1, keepdim=True)
+                .expand(-1, self.n_orange),
+            ),
+            dim=1,
+        ).float()
+        distance_progress = ((self.previous_ball_distance - distance) / 2300.0).clamp(
+            -1.0, 1.0
+        )
+        distance_progress *= (~episode_done)[:, None]
+        opponent_goal = torch.zeros_like(car_pos)
+        opponent_goal[..., 1] = self.team_sign[None, :] * 5124.25
+        own_goal = opponent_goal.clone()
+        own_goal[..., 1].neg_()
+        distance_ball_goal = torch.exp(
+            -0.5 * ((ball_pos - opponent_goal).norm(dim=-1) - 966.0) / 6000.0
+        ).clamp(0.0, 1.0)
+        facing_ball = self._cosine(car_forward, car_to_ball)
+        align_ball_goal = 0.5 * self._cosine(
+            car_to_ball, car_pos - own_goal
+        ) + 0.5 * self._cosine(-car_to_ball, opponent_goal - car_pos)
+        touched_last = torch.nn.functional.one_hot(
+            self.last_toucher.clamp_min(0), self.n_cars
+        ).float()
+        touched_last *= (self.last_toucher >= 0)[:, None]
+        behind_ball = (
+            (ball_pos[..., 1] - car_pos[..., 1]) * self.team_sign[None, :] >= 0
+        ).float()
+        velocity_player_ball = self._cosine(car_vel, car_to_ball)
+        velocity = (car_vel.norm(dim=-1) / 2300.0).clamp(0.0, 1.0)
+        boost_amount = boost.sqrt() / 10.0
+        forward_velocity = ((car_forward * car_vel).sum(dim=-1) / 2300.0).clamp(
+            -1.0, 1.0
+        )
+
+        reward = (
+            1.45 * goal_scored
+            + 0.1 * boost_difference
+            + 0.1 * ball_touch
+            + 0.3 * demo
+            + 0.1 * distance_progress
+            + 0.0025 * distance_ball_goal
+            + 0.000625 * facing_ball
+            + 0.0025 * align_ball_goal
+            + 0.00125 * touched_last
+            + 0.00125 * behind_ball
+            + 0.00125 * velocity_player_ball
+            + 0.000625 * velocity
+            + 0.00125 * boost_amount
+            + 0.0015 * forward_velocity
+        )
+        blue = reward[:, : self.n_blue]
+        orange = reward[:, self.n_blue :]
+        competitive = torch.cat(
+            (
+                blue - orange.mean(dim=1, keepdim=True),
+                orange - blue.mean(dim=1, keepdim=True),
+            ),
+            dim=1,
+        ).flatten()
+        self.previous_boost.copy_(boost)
+        self.previous_demoed.copy_(demoed)
+        self.previous_ball_distance.copy_(distance)
+        mixed = (1.0 - self.team_spirit) * reward.flatten()
+        mixed += self.team_spirit * competitive
+        return mixed * self.reward_scale
 
     def reset(self) -> torch.Tensor:
         self.env.reset()
-        self.elapsed_ticks = 0
-        self.score.zero_()
-        self.touching.zero_()
-        raw = torch.from_dlpack(self.env.get_obs()).clone()
-        self.ball_distance.copy_(self._ball_distance(raw))
+        self.touch_decay.fill_(1.0)
+        self.last_toucher.fill_(-1)
+        self.previous_actions.zero_()
+        self.has_previous_action.zero_()
+        raw = self.raw_state()
+        cars = raw[:, 9:].view(self.n_sim, self.n_cars, 21)
+        self.previous_boost.copy_(cars[..., 15])
+        self.previous_demoed.copy_(cars[..., 17].bool())
+        self.previous_ball_distance.copy_(
+            (cars[..., :3] - raw[:, None, :3]).norm(dim=-1)
+        )
         return self._obs(raw)
 
     def step(self, actions: torch.Tensor):
         actions = actions.to(dtype=torch.int32).contiguous()
         carl_actions = actions.view(self.n_sim, self.n_cars, -1)
-        touch = torch.zeros_like(self.touching)
-        for _ in range(self.tick_skip):
-            raw_obs = torch.from_dlpack(self.env.step(carl_actions)).clone()
-            touching = torch.from_dlpack(
-                self.env.get_ball_touches()
-            ).bool().clone()
-            touch |= touching & ~self.touching
-            self.touching.copy_(touching)
+        raw_obs = self.raw_state(self.env.step(carl_actions))
+        touch = torch.from_dlpack(self.env.get_ball_touches()).bool().clone()
+        touch_height = raw_obs[:, None, 2].expand(-1, self.n_cars)
+        toucher = torch.where(
+            touch,
+            torch.arange(self.n_cars, device="cuda")[None, :],
+            -1,
+        ).amax(dim=1)
+        self.last_toucher.copy_(torch.where(toucher >= 0, toucher, self.last_toucher))
+        score_delta = torch.from_dlpack(self.env.get_rewards()).clone()
+        env_done = torch.from_dlpack(self.env.get_dones()).bool().clone()
+        self.previous_actions.copy_(actions.view(self.n_sim, self.n_cars, -1))
+        self.has_previous_action.fill_(True)
+        self.previous_actions[env_done] = 0
+        self.has_previous_action[env_done] = False
         next_obs = self._obs(raw_obs)
-        score = torch.from_dlpack(self.env.get_rewards()).clone()
-        goal = ((score - self.score)[:, None] * self.team_sign).flatten()
-        touch = touch.float().flatten()
-        ball_distance = self._ball_distance(raw_obs)
-        distance_progress = (
-            (self.ball_distance - ball_distance).flatten() / 6000.0
+        goal = (score_delta[:, None] * self.team_sign).flatten()
+        self.touch_decay.copy_(
+            torch.where(
+                touch,
+                (self.touch_decay * 0.95).clamp_min(0.1),
+                (self.touch_decay + 0.013).clamp_max(1.0),
+            )
         )
-        self.ball_distance.copy_(ball_distance)
+        reward = self._reward(raw_obs, score_delta, touch, touch_height, env_done)
+        self.touch_decay[env_done] = 1.0
+        self.last_toucher[env_done] = -1
 
-        ball_speed = raw_obs[:, 3:6].norm(dim=-1) / 6000.0
-        speed_reward = (
-            ball_speed[:, None]
-            .expand(-1, self.n_cars)
-            .flatten()
-            * self.ball_speed_reward_scale
-            * self.tick_skip
+        done = env_done[:, None].expand(-1, self.n_cars).flatten()
+        return EnvStep(
+            next_obs=next_obs,
+            collector_obs=next_obs,
+            reward=reward,
+            terminated=done,
+            truncated=torch.zeros_like(done),
+            info={"goal": goal},
         )
-        target_y = self.team_sign[None, :] * 5124.25
-        to_goal = torch.stack(
-            (
-                -raw_obs[:, None, 0].expand(-1, self.n_cars),
-                target_y - raw_obs[:, None, 1],
-            ),
-            dim=-1,
-        )
-        to_goal = torch.nn.functional.normalize(to_goal, dim=-1)
-        goal_velocity = (
-            raw_obs[:, None, 3:5] * to_goal
-        ).sum(-1).flatten() / 6000.0
-        reward = (
-            goal * self.goal_reward_scale
-            + speed_reward
-            + touch * self.ball_touch_reward_scale
-            + goal_velocity
-            * self.ball_goal_velocity_reward_scale
-            * self.tick_skip
-            + distance_progress * self.ball_distance_reward_scale
-        ) * self.reward_scale
-        self.score.copy_(score)
-
-        self.elapsed_ticks += self.tick_skip
-        truncated = self.elapsed_ticks >= self.max_ticks
-        done = torch.full(
-            (self.n_agents,), truncated, dtype=torch.bool, device="cuda"
-        )
-        transition = {
-            "act": actions,
-            "rew": reward,
-            "goal": goal,
-            "don": done,
-            "trc": done.clone(),
-            "nxt": next_obs,
-        }
-
-        if truncated:
-            current_obs = self.reset()
-        else:
-            current_obs = next_obs
-        return transition, current_obs
 
     def team_data(self, value: torch.Tensor, blue: bool) -> torch.Tensor:
         value = value.view(self.n_sim, self.n_cars, *value.shape[1:])
@@ -234,11 +414,17 @@ class CarlEnv:
 
 
 class GRUBackbone(nn.Module):
-    def __init__(self, obs_dim: int, hidden_size: int) -> None:
+    def __init__(
+        self,
+        obs_dim: int,
+        hidden_size: int,
+        encoder: nn.Module = None,
+    ) -> None:
         super().__init__()
         self.hidden_size = hidden_size
-        self.encoder = nn.Sequential(
-            init_layer(nn.Linear(obs_dim, hidden_size)), nn.ReLU()
+        self.encoder = encoder or nn.Sequential(
+            init_layer(nn.Linear(obs_dim, hidden_size)),
+            nn.ReLU(),
         )
         self.gru = nn.GRU(hidden_size, hidden_size)
         for name, parameter in self.gru.named_parameters():
@@ -251,142 +437,183 @@ class GRUBackbone(nn.Module):
         return torch.zeros(1, batch_size, self.hidden_size, device=device)
 
     def forward(
-        self, obs: torch.Tensor, hidden: torch.Tensor
+        self,
+        obs: torch.Tensor,
+        hidden: torch.Tensor,
+        reset: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        return self.gru(self.encoder(obs), hidden)
+        encoded = self.encoder(obs)
+        if reset is None or not reset.any():
+            return self.gru(encoded, hidden)
+
+        outputs = []
+        for index in range(len(encoded)):
+            hidden = hidden * (~reset[index])[None, :, None]
+            output, hidden = self.gru(encoded[index : index + 1], hidden)
+            outputs.append(output)
+        return torch.cat(outputs), hidden
 
 
 class GRUPolicy(nn.Module):
-    def __init__(self, env: CarlEnv, hidden_size: int) -> None:
+    def __init__(
+        self,
+        env: CarlEnv,
+        hidden_size: int,
+        backbone: GRUBackbone = None,
+    ) -> None:
         super().__init__()
-        self.backbone = GRUBackbone(env.env.obs_dim, hidden_size)
+        self.version = 0
+        self.backbone = backbone or GRUBackbone(env.obs_dim, hidden_size)
         nvec = env.act_space.nvec.flatten().tolist()
         self.sizes = tuple(int(value) for value in nvec)
         self.action_shape = env.act_space.shape
-        self.output = init_layer(
-            nn.Linear(hidden_size, sum(self.sizes)), std=0.01
+        self.self_player_offset = 29 + 8 * (env.n_cars - 1)
+        self.output = nn.Sequential(
+            init_layer(nn.Linear(hidden_size, hidden_size)),
+            nn.LeakyReLU(),
+            init_layer(nn.Linear(hidden_size, hidden_size // 2)),
+            nn.LeakyReLU(),
+            init_layer(nn.Linear(hidden_size // 2, sum(self.sizes)), std=0.01),
+        )
+        self.register_buffer(
+            "inference_tick_skip", torch.tensor(env.tick_skip, dtype=torch.int32)
         )
 
+    def increment_version(self) -> None:
+        self.version += 1
+
     def initial_state(self, batch_size: int) -> torch.Tensor:
-        return self.backbone.initial_state(batch_size, self.output.weight.device)
+        return self.backbone.initial_state(
+            batch_size, next(self.parameters()).device
+        ).squeeze(0)
+
+    @staticmethod
+    def _disable(
+        logits: torch.Tensor, action: int, unavailable: torch.Tensor
+    ) -> torch.Tensor:
+        masked = logits.clone()
+        masked[..., action] = masked[..., action].masked_fill(unavailable, -1e8)
+        return masked
+
+    def _mask_actions(
+        self, logits: tuple[torch.Tensor, ...], obs: torch.Tensor
+    ) -> tuple[torch.Tensor, ...]:
+        boost = obs[..., self.self_player_offset + 23]
+        on_ground = obs[..., self.self_player_offset + 24] > 0.5
+        has_flip = obs[..., self.self_player_offset + 25] > 0.5
+        masked = list(logits)
+        for action in (1, 2):
+            masked[1] = self._disable(masked[1], action, on_ground)
+            masked[5] = self._disable(masked[5], action, on_ground)
+        masked[2] = self._disable(masked[2], 1, ~on_ground)
+        masked[3] = self._disable(masked[3], 1, ~on_ground)
+        masked[4] = self._disable(masked[4], 1, boost <= 1e-6)
+        masked[6] = self._disable(masked[6], 1, ~has_flip)
+        return tuple(masked)
 
     def _dist(
         self, obs: torch.Tensor, hidden: torch.Tensor
     ) -> tuple[list[Categorical], torch.Tensor]:
         features, next_hidden = self.backbone(obs, hidden)
         logits = self.output(features).split(self.sizes, dim=-1)
+        logits = self._mask_actions(logits, obs)
         return [Categorical(logits=value) for value in logits], next_hidden
 
-    def step(
-        self, obs: torch.Tensor, hidden: torch.Tensor, sample: bool = True
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        distributions, next_hidden = self._dist(obs.unsqueeze(0), hidden)
-        if sample:
-            action = torch.stack([dist.sample() for dist in distributions], -1)
-        else:
+    def act(
+        self,
+        obs: torch.Tensor,
+        state: torch.Tensor | None = None,
+        *,
+        deterministic: bool = False,
+    ) -> ActionDecision:
+        if state is None:
+            state = self.initial_state(len(obs))
+        distributions, next_hidden = self._dist(obs.unsqueeze(0), state.unsqueeze(0))
+        if deterministic:
             action = torch.stack(
                 [dist.logits.argmax(dim=-1) for dist in distributions], -1
             )
+        else:
+            action = torch.stack([dist.sample() for dist in distributions], -1)
         action = action.reshape(*action.shape[:-1], *self.action_shape)
         logprob = torch.stack(
             [dist.log_prob(action[..., i]) for i, dist in enumerate(distributions)],
             dim=-1,
         ).sum(-1)
-        return action.squeeze(0), logprob.squeeze(0), next_hidden
+        return ActionDecision(
+            action=action.squeeze(0),
+            next_state=next_hidden.squeeze(0),
+            artifacts={"log_prob": logprob.squeeze(0)},
+        )
 
-    def evaluate(
-        self, obs: torch.Tensor, act: torch.Tensor, hidden: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        distributions, _ = self._dist(obs, hidden)
-        flat_act = act.reshape(*act.shape[:-len(self.action_shape)], -1)
+    def evaluate_actions(
+        self,
+        obs: torch.Tensor,
+        action: torch.Tensor,
+        state: torch.Tensor | None = None,
+        *,
+        reset: torch.Tensor | None = None,
+    ) -> Evaluation:
+        if state is None:
+            state = self.initial_state(obs.shape[1])
+        features, _ = self.backbone(obs, state.unsqueeze(0), reset)
+        logits = self.output(features).split(self.sizes, dim=-1)
+        logits = self._mask_actions(logits, obs)
+        distributions = [Categorical(logits=value) for value in logits]
+        flat_act = action.reshape(*action.shape[: -len(self.action_shape)], -1)
         logprob = torch.stack(
-            [
-                dist.log_prob(flat_act[..., i])
-                for i, dist in enumerate(distributions)
-            ],
+            [dist.log_prob(flat_act[..., i]) for i, dist in enumerate(distributions)],
             dim=-1,
         ).sum(-1)
-        entropy = torch.stack(
-            [dist.entropy() for dist in distributions], dim=-1
-        ).sum(-1)
-        return logprob, entropy
+        entropy = torch.stack([dist.entropy() for dist in distributions], dim=-1).sum(
+            -1
+        )
+        return Evaluation(log_prob=logprob, entropy=entropy)
 
 
 class GRUValue(nn.Module):
-    def __init__(self, obs_dim: int, hidden_size: int) -> None:
-        super().__init__()
-        self.backbone = GRUBackbone(obs_dim, hidden_size)
-        self.output = init_layer(nn.Linear(hidden_size, 1), std=1.0)
-
-    def initial_state(self, batch_size: int) -> torch.Tensor:
-        return self.backbone.initial_state(batch_size, self.output.weight.device)
-
-    def step(
-        self, obs: torch.Tensor, hidden: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        features, next_hidden = self.backbone(obs.unsqueeze(0), hidden)
-        return self.output(features).squeeze(0).squeeze(-1), next_hidden
-
-    def evaluate(self, obs: torch.Tensor, hidden: torch.Tensor) -> torch.Tensor:
-        features, _ = self.backbone(obs, hidden)
-        return self.output(features).squeeze(-1)
-
-
-class RecurrentPPOUpdate(GradientUpdate):
-    _requires_keys = {
-        "obs", "act", "adv", "lgp", "val", "ret", "policy_h", "critic_h"
-    }
-
     def __init__(
         self,
-        freq: int,
-        policy: GRUPolicy,
-        critic: GRUValue,
-        optimizer: Optimizer,
-        clip: float,
-        val_coef: float,
-        ent_coef: float,
+        hidden_size: int,
+        backbone: GRUBackbone,
     ) -> None:
-        super().__init__(freq, [policy, critic], optimizer=optimizer)
-        self.policy = policy
-        self.critic = critic
-        self.clip = clip
-        self.val_coef = val_coef
-        self.ent_coef = ent_coef
-
-    def loss(self, data: MultiTensor):
-        policy_h = data.policy_h[0].unsqueeze(0).contiguous()
-        critic_h = data.critic_h[0].unsqueeze(0).contiguous()
-        logprob, entropy = self.policy.evaluate(data.obs, data.act, policy_h)
-        value = self.critic.evaluate(data.obs, critic_h)
-
-        logratio = logprob - data.lgp
-        ratio = logratio.exp()
-        with torch.no_grad():
-            approx_kl = ((ratio - 1) - logratio).mean().item()
-        advantage = (data.adv - data.adv.mean()) / (data.adv.std() + 1e-8)
-        policy_loss = -torch.min(
-            advantage * ratio,
-            advantage * torch.clamp(ratio, 1 - self.clip, 1 + self.clip),
-        ).mean()
-        entropy_loss = self.ent_coef * entropy.mean()
-
-        value_loss = (value - data.ret).pow(2)
-        clipped_value = data.val + torch.clamp(
-            value - data.val, -self.clip, self.clip
+        super().__init__()
+        self.version = 0
+        self.backbone = backbone
+        self.output = nn.Sequential(
+            init_layer(nn.Linear(hidden_size, hidden_size // 2)),
+            nn.LeakyReLU(),
+            init_layer(nn.Linear(hidden_size // 2, hidden_size // 4)),
+            nn.LeakyReLU(),
+            init_layer(nn.Linear(hidden_size // 4, 1), std=1.0),
         )
-        value_loss = 0.5 * torch.max(
-            value_loss, (clipped_value - data.ret).pow(2)
-        )
-        value_loss = self.val_coef * value_loss.mean()
-        loss = policy_loss - entropy_loss + value_loss
-        return loss, {
-            "policy_loss": policy_loss.item(),
-            "entropy": entropy.mean().item(),
-            "entropy_loss": entropy_loss.item(),
-            "approx_kl": approx_kl,
-            "critic_loss": value_loss.item(),
-        }
+
+    def increment_version(self) -> None:
+        self.version += 1
+
+    def value(
+        self, obs: torch.Tensor, state: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        if state is None:
+            state = self.backbone.initial_state(
+                len(obs), next(self.parameters()).device
+            ).squeeze(0)
+        features, _ = self.backbone(obs.unsqueeze(0), state.unsqueeze(0))
+        return self.output(features).squeeze(0).squeeze(-1)
+
+    def evaluate_values(
+        self,
+        obs: torch.Tensor,
+        state: torch.Tensor | None = None,
+        *,
+        reset: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if state is None:
+            state = self.backbone.initial_state(
+                obs.shape[1], next(self.parameters()).device
+            ).squeeze(0)
+        features, _ = self.backbone(obs, state.unsqueeze(0), reset)
+        return self.output(features).squeeze(-1)
 
 
 def parse_args() -> argparse.Namespace:
@@ -396,79 +623,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-blue", type=int, default=1)
     parser.add_argument("--n-orange", type=int, default=1)
     parser.add_argument("--max-ticks", type=int, default=4096)
-    parser.add_argument("--tick-skip", type=int, default=4)
+    parser.add_argument("--tick-skip", type=int, default=8)
     parser.add_argument("--rollout-steps", type=int, default=512)
     parser.add_argument("--sequence-len", type=int, default=32)
     parser.add_argument("--hidden-size", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=16384)
-    parser.add_argument("--epochs", type=int, default=4)
+    parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=2.5e-4)
     parser.add_argument("--ent-coef", type=float, default=1e-3)
-    parser.add_argument("--goal-reward-scale", type=float, default=10.0)
-    parser.add_argument("--ball-speed-reward-scale", type=float, default=1e-3)
-    parser.add_argument("--ball-touch-reward-scale", type=float, default=0.1)
-    parser.add_argument(
-        "--ball-goal-velocity-reward-scale", type=float, default=1e-3
-    )
-    parser.add_argument("--ball-distance-reward-scale", type=float, default=0.05)
     parser.add_argument("--reward-scale", type=float, default=1.0)
+    parser.add_argument("--team-spirit", type=float, default=1.0)
     parser.add_argument("--gamma", type=float, default=0.999)
     parser.add_argument("--gae-lambda", type=float, default=0.99)
-    parser.add_argument("--snapshot-interval", type=int, default=50)
+    parser.add_argument("--snapshot-interval", type=int, default=16)
     parser.add_argument("--opponent-pool-size", type=int, default=8)
-    parser.add_argument("--trueskill-n-sim", type=int, default=64)
-    parser.add_argument("--trueskill-opponents", type=int, default=3)
-    parser.add_argument("--trueskill-draw-probability", type=float, default=0.98)
+    parser.add_argument("--current-opponent-prob", type=float, default=0.8)
     parser.add_argument("--checkpoint-dir", default="checkpoints/carl_gru_ppo")
+    parser.add_argument("--tensorboard-dir")
+    parser.add_argument("--console-metrics", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args()
 
 
 def policy_snapshot(policy: GRUPolicy) -> dict[str, torch.Tensor]:
     return {
-        key: value.detach().cpu().clone()
-        for key, value in policy.state_dict().items()
+        key: value.detach().cpu().clone() for key, value in policy.state_dict().items()
     }
-
-
-@torch.no_grad()
-def play_matches(
-    env: CarlEnv,
-    blue_policy: GRUPolicy,
-    orange_policy: GRUPolicy,
-) -> torch.Tensor:
-    obs = env.reset()
-    score = torch.zeros(env.n_sim, device="cuda")
-    blue_h = blue_policy.initial_state(env.n_sim * env.n_blue)
-    orange_h = orange_policy.initial_state(env.n_sim * env.n_orange)
-    for _ in range(env.max_ticks // env.tick_skip):
-        blue_obs = env.team_data(obs, blue=True)
-        orange_obs = env.team_data(obs, blue=False)
-        blue_actions, _, blue_h = blue_policy.step(blue_obs, blue_h)
-        orange_actions, _, orange_h = orange_policy.step(orange_obs, orange_h)
-        actions = env.combine_actions(blue_actions, orange_actions)
-        transition, obs = env.step(actions)
-        blue_goal = env.team_data(transition["goal"], blue=True)
-        score += blue_goal.view(env.n_sim, env.n_blue)[:, 0]
-    return score.cpu()
-
-
-def select_rating_opponents(
-    ratings: dict[int, trueskill.Rating], count: int
-) -> list[int]:
-    ids = list(ratings)
-    selected = []
-    for snapshot_id in (
-        0,
-        max(ids),
-        max(ids, key=lambda key: ratings[key].mu - 3 * ratings[key].sigma),
-    ):
-        if snapshot_id not in selected:
-            selected.append(snapshot_id)
-    for snapshot_id in reversed(ids):
-        if snapshot_id not in selected:
-            selected.append(snapshot_id)
-    return selected[:count]
 
 
 def main() -> None:
@@ -478,30 +658,21 @@ def main() -> None:
     if args.tick_skip < 1:
         raise ValueError("tick-skip must be positive")
     if args.max_ticks % (args.rollout_steps * args.tick_skip):
-        raise ValueError(
-            "max-ticks must be divisible by rollout-steps * tick-skip"
-        )
+        raise ValueError("max-ticks must be divisible by rollout-steps * tick-skip")
     if args.rollout_steps % args.sequence_len:
         raise ValueError("rollout-steps must be divisible by sequence-len")
     if args.batch_size % args.sequence_len:
         raise ValueError("batch-size must be divisible by sequence-len")
     if args.snapshot_interval < 1 or args.opponent_pool_size < 1:
         raise ValueError("snapshot settings must be positive")
-    if args.trueskill_n_sim < 1 or args.trueskill_opponents < 1:
-        raise ValueError("TrueSkill settings must be positive")
-    if not 0 <= args.trueskill_draw_probability < 1:
-        raise ValueError("trueskill-draw-probability must be in [0, 1)")
     if args.ent_coef < 0:
         raise ValueError("ent-coef cannot be negative")
-    if args.goal_reward_scale <= 0 or args.reward_scale <= 0:
-        raise ValueError("goal-reward-scale and reward-scale must be positive")
-    if min(
-        args.ball_speed_reward_scale,
-        args.ball_touch_reward_scale,
-        args.ball_goal_velocity_reward_scale,
-        args.ball_distance_reward_scale,
-    ) < 0:
-        raise ValueError("shaping reward scales cannot be negative")
+    if args.reward_scale <= 0:
+        raise ValueError("reward-scale must be positive")
+    if not 0 <= args.team_spirit <= 1:
+        raise ValueError("team-spirit must be in [0, 1]")
+    if not 0 <= args.current_opponent_prob <= 1:
+        raise ValueError("current-opponent-prob must be in [0, 1]")
     if not 0 < args.gamma <= 1 or not 0 < args.gae_lambda <= 1:
         raise ValueError("gamma and gae-lambda must be in (0, 1]")
 
@@ -513,61 +684,47 @@ def main() -> None:
         args.n_orange,
         args.seed,
         args.max_ticks,
-        args.goal_reward_scale,
-        args.ball_speed_reward_scale,
-        args.ball_touch_reward_scale,
-        args.ball_goal_velocity_reward_scale,
-        args.ball_distance_reward_scale,
         args.reward_scale,
         args.tick_skip,
+        args.team_spirit,
     )
-    rating_match_env = CarlEnv(
-        args.trueskill_n_sim,
-        args.n_blue,
-        args.n_orange,
-        args.seed + 1,
-        args.max_ticks,
-        args.goal_reward_scale,
-        args.ball_speed_reward_scale,
-        args.ball_touch_reward_scale,
-        args.ball_goal_velocity_reward_scale,
-        args.ball_distance_reward_scale,
-        args.reward_scale,
-        args.tick_skip,
-    )
+    shared_backbone = GRUBackbone(env.obs_dim, args.hidden_size).to("cuda")
 
-    def make_policy() -> GRUPolicy:
-        return GRUPolicy(env, args.hidden_size).to("cuda")
+    def make_policy(backbone: GRUBackbone = None) -> GRUPolicy:
+        return GRUPolicy(env, args.hidden_size, backbone).to("cuda")
 
-    policy = make_policy()
+    policy = make_policy(shared_backbone)
     opponent = make_policy()
     opponent.load_state_dict(policy.state_dict())
     opponent.requires_grad_(False).eval()
-    rating_opponent = make_policy()
-    rating_opponent.load_state_dict(policy.state_dict())
-    rating_opponent.requires_grad_(False).eval()
-    critic = GRUValue(env.env.obs_dim, args.hidden_size).to("cuda")
+    critic = GRUValue(args.hidden_size, shared_backbone).to("cuda")
+    captures = (
+        DecisionArtifact("log_prob", "behavior_log_prob"),
+        BehaviorVersionCapture(policy),
+        ValueCapture(critic),
+        RecurrentStateCapture(),
+    )
 
-    ppo = (
-        TrainGraph(
-            RecurrentPPOUpdate(
-                args.rollout_steps,
-                policy,
-                critic,
-                clip=0.2,
-                val_coef=0.5,
-                ent_coef=args.ent_coef,
-                optimizer=Optimizer(Adam, lr=args.learning_rate),
-            ),
-            SequenceSampler(
+    rollout_buffer = RolloutBuffer(args.rollout_steps, env.n_envs, "cuda")
+    optimizer = Adam(unique_parameters((policy, critic)), lr=args.learning_rate)
+    ppo = PPOLearner(
+        transforms=(GAE(gamma=args.gamma, lambda_=args.gae_lambda),),
+        optimizer=PPOOptimizer(
+            policy,
+            critic,
+            RecurrentRolloutMinibatches(
                 args.sequence_len,
-                batch_len=args.batch_size // args.sequence_len,
-                num_epoch=args.epochs,
+                sequences_per_batch=args.batch_size // args.sequence_len,
+                epochs=args.epochs,
             ),
-        )
-        .add_modifier(ComputeAdvantages(gamma=args.gamma, lmbda=args.gae_lambda))
-        .add_modifier(ComputeReturns())
-        .compile()
+            OptimizerStep((policy, critic), optimizer, max_grad_norm=0.5),
+            PPOConfig(
+                clip=0.2,
+                value_clip=0.2,
+                value_coef=0.5,
+                entropy_coef=args.ent_coef,
+            ),
+        ),
     )
 
     samples_per_update = env.n_envs * args.rollout_steps
@@ -582,217 +739,207 @@ def main() -> None:
     snapshots = deque(maxlen=args.opponent_pool_size)
     snapshots.append((0, policy_snapshot(policy)))
     torch.save(snapshots[0][1], checkpoint_dir / "policy_000000.pt")
-    snapshot_states = {0: snapshots[0][1]}
-    rating_system = trueskill.TrueSkill(
-        draw_probability=args.trueskill_draw_probability
-    )
+    rating_system = trueskill.TrueSkill(draw_probability=0.0)
     ratings = {0: rating_system.create_rating()}
-    rating_games = {0: 0}
-    opponent_stats = {}
+    current_rating = rating_system.create_rating()
+    self_play_stats = {
+        "games": 0,
+        "wins": 0,
+        "draws": 0,
+        "goals_for": 0,
+        "goals_against": 0,
+    }
     goal_stats = {"games": 0, "for": 0, "against": 0}
+    recent_episode_goals = deque(maxlen=50)
     current_opponent = 0
+    play_current = torch.zeros(args.n_sim, dtype=torch.bool, device="cuda")
 
     all_obs = env.reset()
-    logger = Logger()
+    tensorboard_dir = args.tensorboard_dir or datetime.now().strftime(
+        "runs/carl_gru_ppo/%Y%m%d-%H%M%S"
+    )
+    logger = Logger(log_dir=tensorboard_dir)
+    logger.writer.add_text("config", json.dumps(vars(args), indent=2), 0)
     episode_return = torch.zeros(env.n_envs, device="cuda")
+    episode_length = torch.zeros(env.n_envs, dtype=torch.long, device="cuda")
     match_score = torch.zeros(args.n_sim, device="cuda")
-    match_goals_for = 0
-    match_goals_against = 0
+    match_goals_for = torch.zeros(args.n_sim, device="cuda")
+    match_goals_against = torch.zeros(args.n_sim, device="cuda")
     policy_h = policy.initial_state(env.n_envs)
-    critic_h = critic.initial_state(env.n_envs)
     opponent_h = opponent.initial_state(args.n_sim * args.n_orange)
-    for update in logger.progress(updates):
-        if env.elapsed_ticks == 0:
-            pool_index = np.random.randint(len(snapshots))
-            current_opponent, state = snapshots[pool_index]
-            opponent.load_state_dict(state)
+    for update in logger.progress(updates, show_stats=args.console_metrics):
+        eligible = [
+            (snapshot_id, state)
+            for snapshot_id, state in snapshots
+            if ratings[snapshot_id].mu > current_rating.mu - 10.0
+        ]
+        if not eligible:
+            eligible = [
+                max(
+                    snapshots,
+                    key=lambda item: ratings[item[0]].mu,
+                )
+            ]
+        weights = np.asarray(
+            [max(ratings[snapshot_id].mu, 1e-6) for snapshot_id, _ in eligible]
+        )
+        weights /= weights.sum()
+        pool_index = np.random.choice(len(eligible), p=weights)
+        current_opponent, state = eligible[pool_index]
+        opponent.load_state_dict(state)
+        opponent_h.zero_()
+        play_current.copy_(
+            torch.rand(args.n_sim, device="cuda") < args.current_opponent_prob
+        )
 
-        rollout = {
-            key: []
-            for key in (
-                "obs", "act", "rew", "don", "trc", "nxt",
-                "lgp", "val", "next_val", "policy_h", "critic_h",
-            )
-        }
         for rollout_step in range(args.rollout_steps):
             learner_obs = env.team_data(all_obs, blue=True)
             opponent_obs = env.team_data(all_obs, blue=False)
             with torch.no_grad():
-                learner_actions, logprob, next_policy_h = policy.step(
-                    learner_obs, policy_h
+                learner_decision = policy.act(learner_obs, policy_h)
+                opponent_decision = opponent.act(opponent_obs, opponent_h)
+                current_decision = policy.act(opponent_obs, opponent_h)
+                current_mask = play_current.repeat_interleave(args.n_orange)
+                opponent_actions = torch.where(
+                    current_mask[:, None],
+                    current_decision.action,
+                    opponent_decision.action,
                 )
-                opponent_actions, _, next_opponent_h = opponent.step(
-                    opponent_obs, opponent_h
+                next_opponent_h = torch.where(
+                    current_mask[:, None],
+                    current_decision.next_state,
+                    opponent_decision.next_state,
                 )
-                value, next_critic_h = critic.step(learner_obs, critic_h)
-            actions = env.combine_actions(learner_actions, opponent_actions)
-            transition, next_obs = env.step(actions)
-            learner_transition = {
-                key: env.team_data(value, blue=True)
-                for key, value in transition.items()
-                if key not in {"act", "goal"}
-            }
-            learner_transition["act"] = learner_actions
-            learner_next_obs = env.team_data(transition["nxt"], blue=True)
-            with torch.no_grad():
-                next_value, _ = critic.step(learner_next_obs, next_critic_h)
-            rollout["obs"].append(learner_obs)
-            rollout["lgp"].append(logprob)
-            rollout["val"].append(value)
-            rollout["next_val"].append(next_value)
-            rollout["policy_h"].append(policy_h.squeeze(0))
-            rollout["critic_h"].append(critic_h.squeeze(0))
-            for key, value in learner_transition.items():
-                rollout[key].append(value)
-            episode_return += learner_transition["rew"]
-            learner_goal = env.team_data(transition["goal"], blue=True)
+            actions = env.combine_actions(learner_decision.action, opponent_actions)
+            env_step = env.step(actions)
+            learner_env_step = EnvStep(
+                next_obs=env.team_data(env_step.next_obs, blue=True),
+                collector_obs=env.team_data(env_step.collector_obs, blue=True),
+                reward=env.team_data(env_step.reward, blue=True),
+                terminated=env.team_data(env_step.terminated, blue=True),
+                truncated=env.team_data(env_step.truncated, blue=True),
+            )
+            record = build_record(
+                CaptureContext(
+                    obs=learner_obs,
+                    state_in=policy_h,
+                    decision=learner_decision,
+                    env_step=learner_env_step,
+                ),
+                captures,
+            )
+            rollout_buffer.append(record)
+            episode_return += learner_env_step.reward
+            episode_length += args.tick_skip
+            learner_goal = env.team_data(env_step.info["goal"], blue=True)
             learner_goal = learner_goal.view(args.n_sim, args.n_blue)[:, 0]
             match_score += learner_goal
-            match_goals_for += (learner_goal > 0).sum().item()
-            match_goals_against += (learner_goal < 0).sum().item()
-            all_obs = next_obs
-            policy_h = next_policy_h
-            critic_h = next_critic_h
+            match_goals_for += learner_goal > 0
+            match_goals_against += learner_goal < 0
+            all_obs = env_step.collector_obs
+            policy_h = learner_decision.next_state
             opponent_h = next_opponent_h
 
-            if learner_transition["don"].any():
-                global_t = (
-                    update * args.rollout_steps + rollout_step + 1
-                ) * env.n_envs
+            learner_done = learner_env_step.done
+            if learner_done.any():
+                done_sim = learner_done.view(args.n_sim, args.n_blue).any(dim=1)
+                ended_score = match_score[done_sim]
+                ended_goals_for = match_goals_for[done_sim]
+                ended_goals_against = match_goals_against[done_sim]
+                games = int(done_sim.sum().item())
+                global_t = (update * args.rollout_steps + rollout_step + 1) * env.n_envs
                 logger.episode(
                     global_t,
                     {
-                        "reward": episode_return.cpu().tolist(),
-                        "length": [args.max_ticks] * env.n_envs,
+                        "reward": episode_return[learner_done].cpu().tolist(),
+                        "length": episode_length[learner_done].cpu().tolist(),
                     },
                 )
-                stats = opponent_stats.setdefault(
-                    current_opponent,
-                    {
-                        "games": 0,
-                        "wins": 0,
-                        "draws": 0,
-                        "goals_for": 0,
-                        "goals_against": 0,
-                    },
-                )
-                stats["games"] += args.n_sim
-                stats["wins"] += (match_score > 0).sum().item()
-                stats["draws"] += (match_score == 0).sum().item()
-                stats["goals_for"] += match_goals_for
-                stats["goals_against"] += match_goals_against
-                goal_stats["games"] += args.n_sim
-                goal_stats["for"] += match_goals_for
-                goal_stats["against"] += match_goals_against
+                stats = self_play_stats
+                stats["games"] += games
+                stats["wins"] += (ended_score > 0).sum().item()
+                stats["draws"] += (ended_score == 0).sum().item()
+                episode_goals_for = int(ended_goals_for.sum().item())
+                episode_goals_against = int(ended_goals_against.sum().item())
+                stats["goals_for"] += episode_goals_for
+                stats["goals_against"] += episode_goals_against
+                goal_stats["games"] += games
+                goal_stats["for"] += episode_goals_for
+                goal_stats["against"] += episode_goals_against
                 total_goals = goal_stats["for"] + goal_stats["against"]
+                recent_episode_goals.extend(
+                    (ended_goals_for + ended_goals_against).cpu().tolist()
+                )
+                rating_outcomes = match_score[done_sim & ~play_current].cpu()
+                if len(rating_outcomes) > 32:
+                    rating_outcomes = rating_outcomes[
+                        torch.randperm(len(rating_outcomes))[:32]
+                    ]
+                for outcome in rating_outcomes.tolist():
+                    if outcome > 0:
+                        current_rating, ratings[current_opponent] = (
+                            rating_system.rate_1vs1(
+                                current_rating, ratings[current_opponent]
+                            )
+                        )
+                    elif outcome < 0:
+                        ratings[current_opponent], current_rating = (
+                            rating_system.rate_1vs1(
+                                ratings[current_opponent], current_rating
+                            )
+                        )
                 logger.update(
                     {
                         "SelfPlay": {
-                            "opponent": current_opponent,
+                            "prior_opponent": current_opponent,
+                            "current_fraction": play_current.float().mean().item(),
                             "games": stats["games"],
                             "win_rate": stats["wins"] / stats["games"],
                             "draw_rate": stats["draws"] / stats["games"],
-                            "goal_diff": (
-                                stats["goals_for"] - stats["goals_against"]
-                            ) / stats["games"],
+                            "goal_diff": (stats["goals_for"] - stats["goals_against"])
+                            / stats["games"],
+                            "current_mu": current_rating.mu,
+                            "opponent_mu": ratings[current_opponent].mu,
                         },
                         "Goals": {
                             "for": goal_stats["for"],
                             "against": goal_stats["against"],
                             "total": total_goals,
-                            "per_game": total_goals / goal_stats["games"],
-                        }
+                            "per_episode_50": np.mean(recent_episode_goals),
+                        },
                     }
                 )
-                episode_return.zero_()
-                match_score.zero_()
-                match_goals_for = 0
-                match_goals_against = 0
-                policy_h.zero_()
-                critic_h.zero_()
-                opponent_h.zero_()
+                episode_return[learner_done] = 0
+                episode_length[learner_done] = 0
+                match_score[done_sim] = 0
+                match_goals_for[done_sim] = 0
+                match_goals_against[done_sim] = 0
+                policy_h[learner_done] = 0
+                opponent_done = done_sim.repeat_interleave(args.n_orange)
+                opponent_h[opponent_done] = 0
 
-        data = MultiTensor(
-            **{key: torch.stack(values) for key, values in rollout.items()}
-        )
-        ppo.ready(args.rollout_steps)
-        logger.update(ppo.update(data))
+        global_t = (update + 1) * samples_per_update
+        logger.update(ppo.update(rollout_buffer.finish()), step=global_t)
+        rollout_buffer.clear()
 
         update_number = update + 1
         if update_number % args.snapshot_interval == 0:
             state = policy_snapshot(policy)
             snapshots.append((update_number, state))
-            snapshot_states[update_number] = state
-            torch.save(
-                state, checkpoint_dir / f"policy_{update_number:06d}.pt"
+            ratings[update_number] = trueskill.Rating(
+                mu=current_rating.mu, sigma=current_rating.sigma
             )
-            ratings[update_number] = rating_system.create_rating()
-            rating_games[update_number] = 0
-            rating_opponents = select_rating_opponents(
-                {key: value for key, value in ratings.items() if key != update_number},
-                args.trueskill_opponents,
-            )
-            eval_wins = eval_draws = eval_games = 0
-            for opponent_id in rating_opponents:
-                rating_opponent.load_state_dict(snapshot_states[opponent_id])
-                outcomes = torch.cat(
-                    (
-                        play_matches(rating_match_env, policy, rating_opponent),
-                        -play_matches(rating_match_env, rating_opponent, policy),
-                    )
-                )
-                eval_wins += (outcomes > 0).sum().item()
-                eval_draws += (outcomes == 0).sum().item()
-                eval_games += len(outcomes)
-                for outcome in outcomes.tolist():
-                    if outcome > 0:
-                        ratings[update_number], ratings[opponent_id] = (
-                            rating_system.rate_1vs1(
-                                ratings[update_number], ratings[opponent_id]
-                            )
-                        )
-                    elif outcome < 0:
-                        ratings[opponent_id], ratings[update_number] = (
-                            rating_system.rate_1vs1(
-                                ratings[opponent_id], ratings[update_number]
-                            )
-                        )
-                    else:
-                        ratings[update_number], ratings[opponent_id] = (
-                            rating_system.rate_1vs1(
-                                ratings[update_number],
-                                ratings[opponent_id],
-                                drawn=True,
-                            )
-                        )
-                rating_games[update_number] += len(outcomes)
-                rating_games[opponent_id] += len(outcomes)
-
-            rating = ratings[update_number]
-            logger.update(
-                {
-                    "TrueSkill": {
-                        "snapshot": update_number,
-                        "mu": rating.mu,
-                        "sigma": rating.sigma,
-                        "skill": rating.mu - 3 * rating.sigma,
-                        "games": rating_games[update_number],
-                        "win_rate": eval_wins / eval_games,
-                        "draw_rate": eval_draws / eval_games,
-                    }
-                }
-            )
-            leaderboard = {
+            torch.save(state, checkpoint_dir / f"policy_{update_number:06d}.pt")
+            rating_data = {
                 str(snapshot_id): {
-                    "mu": value.mu,
-                    "sigma": value.sigma,
-                    "skill": value.mu - 3 * value.sigma,
-                    "games": rating_games[snapshot_id],
+                    "mu": rating.mu,
+                    "sigma": rating.sigma,
+                    "skill": rating.mu - 3.0 * rating.sigma,
                 }
-                for snapshot_id, value in ratings.items()
+                for snapshot_id, rating in ratings.items()
             }
-            (checkpoint_dir / "trueskill_ratings.json").write_text(
-                json.dumps(leaderboard, indent=2) + "\n"
+            (checkpoint_dir / "opponent_ratings.json").write_text(
+                json.dumps(rating_data, indent=2) + "\n"
             )
 
 

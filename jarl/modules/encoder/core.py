@@ -1,7 +1,6 @@
 import torch as th
-import torch.nn as nn
 
-from typing import Self, Tuple
+from typing import Self
 
 from jarl.envs.gym import SyncGymEnv
 from jarl.modules.encoder.base import Encoder
