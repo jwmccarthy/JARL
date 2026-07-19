@@ -17,6 +17,7 @@ class Logger:
     def _write(self, info: Mapping[str, Any], step: int) -> None:
         if not self.writer:
             return
+
         for section, values in info.items():
             for key, value in values.items():
                 self.writer.add_scalar(f"{section}/{key}", float(value), step)
@@ -46,6 +47,7 @@ class Logger:
         try:
             for update in range(updates):
                 yield update
+
                 print(
                     f"\rUpdate {update + 1:,}/{updates:,} | "
                     f"Global ticks {self.step:,}",

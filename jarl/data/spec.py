@@ -24,6 +24,7 @@ class TensorSpec:
     def __call__(self, x: ndarray) -> Tensor:
         if not isinstance(x, ndarray):
             x = np.array(x)
+
         assert self.shape == x.shape
         assert self.stype == x.dtype
         return th.from_numpy(x).to(self.device)

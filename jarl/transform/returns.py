@@ -76,15 +76,19 @@ class NStepTarget:
     ) -> TensorBatch:
         if len(window.shape) < 2:
             raise ValueError("n-step targets require [time, batch, ...] windows")
+
         reward = window["reward"]
         target = th.zeros_like(reward[0])
         discount = 1.0
+
         for index in range(len(reward)):
             target += discount * reward[index]
             discount *= self.gamma
+
         target += (
             discount
             * (~window["terminated"][-1]).to(reward.dtype)
             * self.bootstrap(window["next_obs"][-1])
         )
+
         return window[0].with_fields(td_target=target)

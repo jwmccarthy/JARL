@@ -30,6 +30,7 @@ class ValueFunction(CompositeNet):
     ) -> th.Tensor:
         if state is not None:
             raise ValueError("feed-forward value functions do not accept recurrent state")
+
         return self(observation)
 
     def evaluate_values(
@@ -41,6 +42,7 @@ class ValueFunction(CompositeNet):
     ) -> th.Tensor:
         if reset is not None:
             raise ValueError("feed-forward value functions do not accept reset masks")
+
         return self.value(observation, state)
 
 
@@ -57,6 +59,7 @@ class DiscreteQFunction(CompositeNet):
     def build(self, env: SyncGymEnv) -> Self:
         assert isinstance(env.act_space, DiscreteSpace), (
             "DiscreteQFunction only supports Discrete action")
+
         return super().build(env, env.act_space.numel)
 
     def forward(self, x: th.Tensor) -> th.Tensor:
@@ -76,6 +79,7 @@ class ContinuousQFunction(CompositeNet):
     def build(self, env: SyncGymEnv) -> Self:
         assert isinstance(env.act_space, BoxSpace), (
             "ContinuousQFunction only supports Box action")
+
         self.head = self.head if self.head.built else self.head.build(env)
         self.body.build(self.head.feats + env.act_space.numel, 1)
         self.foot = self.foot if self.foot else nn.Identity()

@@ -93,6 +93,7 @@ class RuntimeTests(unittest.TestCase):
             "terminated": th.tensor([[False, False], [True, False]]),
             "truncated": th.tensor([[False, False], [False, True]]),
         }
+
         target = NStepTarget(
             lambda observation: th.full((len(observation),), 4.0),
             gamma=0.5,
@@ -127,6 +128,7 @@ class RuntimeTests(unittest.TestCase):
                 )(batch)
             )
         )
+
         th.testing.assert_close(sample.initial_state, th.tensor([[0.0]]))
         th.testing.assert_close(
             sample.reset[:, 0],
@@ -153,6 +155,7 @@ class RuntimeTests(unittest.TestCase):
                 Stage("optimize"),
             ]
         )
+
         program.update(object())
         self.assertEqual(order, ["reward", "prepare", "optimize"])
 
@@ -226,6 +229,7 @@ class RuntimeTests(unittest.TestCase):
             policy_output = policy.act(observation)
             value = critic.value(observation)
             next_value = critic.value(next_obs)
+
         rollout = Rollout(
             TensorBatch(
                 {
@@ -243,6 +247,7 @@ class RuntimeTests(unittest.TestCase):
                 }
             )
         )
+
         optimizer = th.optim.Adam(unique_parameters((policy, critic)), lr=1e-3)
         learner = PPOLearner(
             transforms=(GAE(),),
@@ -317,6 +322,7 @@ class RuntimeTests(unittest.TestCase):
             OnPolicySchedule(),
             logger=Logger(),
         )
+
         trainer.run(total_env_steps=10)
 
         self.assertEqual([len(rollout) for rollout in learner.rollouts], [3, 2])

@@ -7,7 +7,6 @@ from jarl.data.dict import DotDict
 
 
 class EpisodeStatsEnv(gym.Wrapper):
-
     def __init__(self, env: gym.Env) -> None:
         super().__init__(env)
         self.reward = self.length = 0
@@ -18,16 +17,17 @@ class EpisodeStatsEnv(gym.Wrapper):
 
     def step(self, action: np.ndarray):
         observation, reward, terminated, truncated, _ = super().step(action)
+
         self.reward += reward
         self.length += 1
         info = DotDict()
         if np.logical_or(terminated, truncated):
             info.update(reward=self.reward, length=self.length)
+
         return observation, reward, terminated, truncated, info
 
 
 class ReshapeImageEnv(gym.Wrapper):
-
     def __init__(self, env: gym.Env) -> None:
         super().__init__(env)
 

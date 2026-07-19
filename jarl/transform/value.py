@@ -17,6 +17,7 @@ class MaterializeValues:
                 "recurrent values must be captured until recurrent "
                 "materialization has an explicit state-unroll contract"
             )
+
         value = self.estimator.value(batch["observation"])
         next_value = self.estimator.value(batch["next_obs"])
         return batch.with_fields(

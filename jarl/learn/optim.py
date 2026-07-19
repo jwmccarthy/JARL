@@ -10,6 +10,7 @@ def unique_parameters(modules: nn.Module | Iterable[nn.Module]):
         modules = (modules,)
     seen = set()
     parameters = []
+
     for module in modules:
         for parameter in module.parameters():
             if id(parameter) not in seen:

@@ -76,6 +76,7 @@ class Policy(CompositeNet, ABC):
             raise ValueError("feed-forward policies do not accept recurrent state")
         if reset is not None:
             raise ValueError("feed-forward policies do not accept reset masks")
+
         distribution = self.dist(observation)
         return Evaluation(
             log_prob=self._logprob(distribution, action),
@@ -129,6 +130,7 @@ class MultiCategoricalPolicy(Policy):
     def build(self, env: SyncGymEnv) -> Self:
         assert isinstance(env.act_space, MultiDiscreteSpace), (
             "MultiCategoricalPolicy only supports MultiDiscrete actions")
+
         self.action_shape = env.act_space.shape
         self.sizes = tuple(
             int(n) for n in env.act_space.nvec.flatten().tolist()
@@ -235,5 +237,6 @@ class NoisyContinuousPolicy(Policy):
     ) -> PolicyOutput:
         if state is not None:
             raise ValueError("feed-forward policies do not accept recurrent state")
+
         action = self.action(observation) if deterministic else self.sample(observation)
         return PolicyOutput(action)

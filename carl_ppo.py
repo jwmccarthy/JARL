@@ -210,6 +210,7 @@ class CarlEnv:
         previous_action = torch.cat(
             (previous_action, self.has_previous_action[..., None].float()), dim=-1
         )
+
         game_features = torch.cat(
             (
                 ball_position / 6000.0,
@@ -221,6 +222,7 @@ class CarlEnv:
             ),
             dim=-1,
         )
+
         observation = torch.cat((game_features, player_features.flatten(2)), dim=-1)
         return observation.flatten(0, 1)
 
@@ -328,6 +330,7 @@ class CarlEnv:
             + 0.00125 * boost_amount
             + 0.0015 * forward_velocity
         )
+
         blue = reward[:, : self.n_blue]
         orange = reward[:, self.n_blue :]
         competitive = torch.cat(
@@ -337,9 +340,11 @@ class CarlEnv:
             ),
             dim=1,
         ).flatten()
+
         self.previous_boost.copy_(boost)
         self.previous_demoed.copy_(demoed)
         self.previous_ball_distance.copy_(distance)
+
         mixed = (1.0 - self.team_spirit) * reward.flatten()
         mixed += self.team_spirit * competitive
         return mixed * self.reward_scale
@@ -373,12 +378,15 @@ class CarlEnv:
         self.last_toucher.copy_(torch.where(toucher >= 0, toucher, self.last_toucher))
         score_delta = torch.from_dlpack(self.env.get_rewards()).clone()
         env_done = torch.from_dlpack(self.env.get_dones()).bool().clone()
+
         self.previous_actions.copy_(actions.view(self.n_sim, self.n_cars, -1))
         self.has_previous_action.fill_(True)
         self.previous_actions[env_done] = 0
         self.has_previous_action[env_done] = False
+
         next_obs = self._build_observation(raw_obs)
         goal = (score_delta[:, None] * self.team_sign).flatten()
+
         self.touch_decay.copy_(
             torch.where(
                 touch,
@@ -386,6 +394,7 @@ class CarlEnv:
                 (self.touch_decay + 0.013).clamp_max(1.0),
             )
         )
+
         reward = self._reward(raw_obs, score_delta, touch, touch_height, env_done)
         self.touch_decay[env_done] = 1.0
         self.last_toucher[env_done] = -1
@@ -697,6 +706,7 @@ def main() -> None:
     opponent.load_state_dict(policy.state_dict())
     opponent.requires_grad_(False).eval()
     critic = GRUValue(args.hidden_size, shared_backbone).to("cuda")
+
     captures = (
         LogProbCapture(),
         PolicyVersionCapture(policy),
@@ -738,9 +748,11 @@ def main() -> None:
     snapshots = deque(maxlen=args.opponent_pool_size)
     snapshots.append((0, policy_snapshot(policy)))
     torch.save(snapshots[0][1], checkpoint_dir / "policy_000000.pt")
+
     rating_system = trueskill.TrueSkill(draw_probability=0.0)
     ratings = {0: rating_system.create_rating()}
     current_rating = rating_system.create_rating()
+
     self_play_stats = {
         "games": 0,
         "wins": 0,
@@ -779,6 +791,7 @@ def main() -> None:
                     key=lambda item: ratings[item[0]].mu,
                 )
             ]
+
         weights = np.asarray(
             [max(ratings[snapshot_id].mu, 1e-6) for snapshot_id, _ in eligible]
         )
@@ -787,6 +800,7 @@ def main() -> None:
         current_opponent, state = eligible[pool_index]
         opponent.load_state_dict(state)
         opponent_state.zero_()
+
         play_current.copy_(
             torch.rand(args.n_sim, device="cuda") < args.current_opponent_prob
         )
@@ -809,6 +823,7 @@ def main() -> None:
                     current_output.next_state,
                     opponent_output.next_state,
                 )
+
             actions = env.combine_actions(learner_output.action, opponent_actions)
             env_step = env.step(actions)
             learner_env_step = EnvStep(
@@ -818,6 +833,7 @@ def main() -> None:
                 terminated=env.team_data(env_step.terminated, blue=True),
                 truncated=env.team_data(env_step.truncated, blue=True),
             )
+
             record = build_record(
                 CaptureContext(
                     observation=learner_observation,
@@ -828,6 +844,7 @@ def main() -> None:
                 captures,
             )
             rollout_buffer.append(record)
+
             episode_return += learner_env_step.reward
             episode_length += args.tick_skip
             learner_goal = env.team_data(env_step.info["goal"], blue=True)
@@ -835,6 +852,7 @@ def main() -> None:
             match_score += learner_goal
             match_goals_for += learner_goal > 0
             match_goals_against += learner_goal < 0
+
             all_observations = env_step.observation
             policy_state = learner_output.next_state
             opponent_state = next_opponent_state
@@ -854,6 +872,7 @@ def main() -> None:
                         "length": episode_length[learner_done].cpu().tolist(),
                     },
                 )
+
                 stats = self_play_stats
                 stats["games"] += games
                 stats["wins"] += (ended_score > 0).sum().item()
@@ -869,6 +888,7 @@ def main() -> None:
                 recent_episode_goals.extend(
                     (ended_goals_for + ended_goals_against).cpu().tolist()
                 )
+
                 rating_outcomes = match_score[done_sim & ~play_current].cpu()
                 if len(rating_outcomes) > 32:
                     rating_outcomes = rating_outcomes[
@@ -887,6 +907,7 @@ def main() -> None:
                                 ratings[current_opponent], current_rating
                             )
                         )
+
                 logger.update(
                     {
                         "SelfPlay": {
@@ -908,6 +929,7 @@ def main() -> None:
                         },
                     }
                 )
+
                 episode_return[learner_done] = 0
                 episode_length[learner_done] = 0
                 match_score[done_sim] = 0
@@ -929,6 +951,7 @@ def main() -> None:
                 mu=current_rating.mu, sigma=current_rating.sigma
             )
             torch.save(state, checkpoint_dir / f"policy_{update_number:06d}.pt")
+
             rating_data = {
                 str(snapshot_id): {
                     "mu": rating.mu,

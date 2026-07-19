@@ -24,6 +24,7 @@ class Trainer:
         vector_steps = total_env_steps // self.runner.n_envs
         if vector_steps < 1:
             raise ValueError("total_env_steps is smaller than one vector step")
+
         self.runner.reset()
 
         for index in self.logger.progress(vector_steps):
@@ -46,6 +47,8 @@ class Trainer:
     def _update(self) -> None:
         data = self.schedule.acquire(self.buffer)
         metrics = self.learner.update(data)
+
         self.clock.learner_updates += 1
         self.logger.update(metrics, step=self.clock.env_steps)
+
         self.schedule.after_update(self.buffer)

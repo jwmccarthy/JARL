@@ -108,6 +108,7 @@ def list_checkpoints(directory: Path) -> list[dict]:
     live_paths = set(paths)
     for stale_path in CHECKPOINT_METADATA.keys() - live_paths:
         del CHECKPOINT_METADATA[stale_path]
+
     for path in paths:
         modified = path.stat().st_mtime_ns
         cached = CHECKPOINT_METADATA.get(path)
@@ -333,6 +334,7 @@ def make_handler(
             if self.path != "/api/match":
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
+
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length <= 0 or length > 8192:
@@ -358,6 +360,7 @@ def make_handler(
             ) as error:
                 self.send_error(HTTPStatus.BAD_REQUEST, str(error))
                 return
+
             state.select_match(blue_path, orange_path, sample_actions)
             self.send_response(HTTPStatus.ACCEPTED)
             self.end_headers()
@@ -372,6 +375,7 @@ def make_handler(
                 self.end_headers()
                 self.wfile.write(payload)
                 return
+
             if self.path == "/api/stream":
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "text/event-stream")
@@ -478,6 +482,7 @@ def main() -> None:
     print(f"Viewer: {url}")
     if args.open:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+
     server = ThreadingHTTPServer(
         (args.host, args.port),
         make_handler(state, frontend, arena, args.checkpoint_dir),

@@ -19,10 +19,12 @@ class TensorBatch(Mapping[str, th.Tensor]):
     def shape(self) -> tuple[int, ...]:
         shapes = [tuple(value.shape) for value in self.data.values()]
         common = []
+
         for dimensions in zip(*shapes):
             if len(set(dimensions)) != 1:
                 break
             common.append(dimensions[0])
+
         return tuple(common)
 
     @property
@@ -50,21 +52,25 @@ class TensorBatch(Mapping[str, th.Tensor]):
         duplicate = self.data.keys() & fields.keys()
         if duplicate:
             raise KeyError(f"fields already exist: {sorted(duplicate)}")
+
         for key, value in fields.items():
             prefix = min(value.ndim, len(self.shape))
             if prefix == 0 or tuple(value.shape[:prefix]) != self.shape[:prefix]:
                 raise ValueError(
                     f"field {key!r} does not share a leading batch shape"
                 )
+
         return TensorBatch(self.data | fields)
 
     def replace_fields(self, **fields: th.Tensor) -> "TensorBatch":
         missing = fields.keys() - self.data.keys()
         if missing:
             raise KeyError(f"fields do not exist: {sorted(missing)}")
+
         for key, value in fields.items():
             if value.shape != self.data[key].shape:
                 raise ValueError(f"replacement field {key!r} changed shape")
+
         return TensorBatch(self.data | fields)
 
     def flatten(self, start: int, end: int) -> "TensorBatch":

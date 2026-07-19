@@ -84,6 +84,7 @@ class CollectTests(unittest.TestCase):
             ValueCapture(FakeValue()),
             RecurrentStateCapture(),
         )
+
         record = build_record(
             CaptureContext(observation, state, policy_output, step),
             captures,
@@ -122,6 +123,7 @@ class CollectTests(unittest.TestCase):
                 RecurrentStateCapture(),
             ),
         )
+
         runner.reset()
         step = runner.step()
 

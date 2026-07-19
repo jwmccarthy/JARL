@@ -10,7 +10,6 @@ from jarl.envs.space import torch_space
 
 
 class SyncGymEnv:
-
     def __init__(
         self, 
         env_func: Callable[[Any], gym.Env], 
@@ -43,6 +42,7 @@ class SyncGymEnv:
             if isinstance(action, th.Tensor)
             else action
         )
+
         reward, length = [], []
 
         # step environments
@@ -52,6 +52,7 @@ class SyncGymEnv:
             self.reward[index] = current_reward
             self.terminated[index] = terminated
             self.truncated[index] = truncated
+
             done = terminated | truncated
             self.next_observation[index] = (
                 env.reset()[0] if done else observation

@@ -55,9 +55,15 @@ def make_env(env_id, **kwargs):
 
     return thunk
 
-env = SyncGymEnv(make_env("ale_py:ALE/Pacman-v5", 
-                       frameskip=1, 
-                       repeat_action_probability=0.), 8)
+
+env = SyncGymEnv(
+    make_env(
+        "ale_py:ALE/Pacman-v5",
+        frameskip=1,
+        repeat_action_probability=0.0,
+    ),
+    8,
+)
 
 policy = CategoricalPolicy(
     head=ImageEncoder(CNN(
@@ -93,9 +99,11 @@ runner = Runner(
         ValueCapture(critic),
     ),
 )
+
 training_vector_steps = int(1.25e6)
 parameters = unique_parameters((policy, critic))
 optimizer = Adam(parameters, lr=2.5e-4)
+
 ppo = PPOLearner(
     transforms=(SignRewards(), GAE()),
     optimizer=PPOOptimizer(
@@ -120,9 +128,14 @@ ppo = PPOLearner(
     ),
 )
 
-eval_env = SyncGymEnv(make_env("ale_py:ALE/Pacman-v5", 
-                               frameskip=1, 
-                               repeat_action_probability=0.), 1)
+eval_env = SyncGymEnv(
+    make_env(
+        "ale_py:ALE/Pacman-v5",
+        frameskip=1,
+        repeat_action_probability=0.0,
+    ),
+    1,
+)
 
 trainer = Trainer(
     runner,

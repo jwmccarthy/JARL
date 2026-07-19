@@ -32,8 +32,10 @@ class Runner:
             self.observation,
             device=self.policy.device,
         )
+
         policy_output = self.policy.act(observation, self.state)
         env_step = self.env.step(policy_output.action)
+
         context = CaptureContext(observation, self.state, policy_output, env_step)
         self.buffer.append(build_record(context, self.captures))
 
@@ -45,9 +47,11 @@ class Runner:
 def _reset_state(state: th.Tensor | None, done) -> th.Tensor | None:
     if state is None:
         return None
+
     done = th.as_tensor(done, dtype=th.bool, device=state.device)
     if not done.any():
         return state
+
     state = state.clone()
     state[done] = 0
     return state

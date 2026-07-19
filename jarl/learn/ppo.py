@@ -163,6 +163,7 @@ class PPOLearner:
             self.transforms,
             PrepareContext(rollout),
         )
+
         value_versions = prepared["value_version"].unique()
         if (
             value_versions.numel() != 1

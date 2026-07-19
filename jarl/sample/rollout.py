@@ -9,6 +9,7 @@ class RolloutMinibatches:
     def __init__(self, batch_size: int, epochs: int = 1) -> None:
         if batch_size < 1 or epochs < 1:
             raise ValueError("minibatch settings must be positive")
+
         self.batch_size = batch_size
         self.epochs = epochs
 
@@ -51,6 +52,7 @@ class RecurrentRolloutMinibatches:
     ) -> None:
         if sequence_length < 1 or sequences_per_batch < 1 or epochs < 1:
             raise ValueError("sequence settings must be positive")
+
         self.sequence_length = sequence_length
         self.sequences_per_batch = sequences_per_batch
         self.epochs = epochs
@@ -120,6 +122,7 @@ class RecurrentRolloutMinibatches:
             if key != "policy_state"
         }
         steps = TensorBatch(step_data)
+
         done = steps["terminated"] | steps["truncated"]
         reset = th.zeros_like(done)
         reset[1:] = done[:-1]

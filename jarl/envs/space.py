@@ -147,7 +147,6 @@ class MultiBinarySpace(TensorSpace):
 
 @dataclass
 class ConcatSpace(TensorSpec):
-
     space: TensorSpace
     count: int
     shape: tuple[int, ...] = field(init=False)

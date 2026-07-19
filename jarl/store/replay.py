@@ -38,6 +38,7 @@ class ReplayBuffer(TensorStorage):
     def sample(self, batch_size: int) -> TensorBatch:
         if not self.ready(batch_size) or self._storage is None:
             raise RuntimeError("replay does not contain enough transitions")
+
         logical_time = th.randint(self.size, (batch_size,))
         env = th.randint(self.num_envs, (batch_size,))
         physical = self._physical_time(logical_time)
@@ -54,11 +55,13 @@ class ReplayBuffer(TensorStorage):
     def sample_windows(self, batch_size: int, length: int) -> TensorBatch:
         if length < 1 or self.size < length or self._storage is None:
             raise RuntimeError("replay does not contain complete windows")
+
         done = self._storage["terminated"] | self._storage["truncated"]
         starts = []
         envs = []
         attempts = 0
         max_attempts = max(100, batch_size * 20)
+
         while len(starts) < batch_size and attempts < max_attempts:
             start = int(th.randint(self.size - length + 1, ()).item())
             env = int(th.randint(self.num_envs, ()).item())
@@ -68,6 +71,7 @@ class ReplayBuffer(TensorStorage):
                 starts.append(start)
                 envs.append(env)
             attempts += 1
+
         if len(starts) != batch_size:
             raise RuntimeError("could not sample enough episode-safe windows")
 

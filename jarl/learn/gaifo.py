@@ -57,6 +57,7 @@ class TrainDiscriminator:
                     if self.from_logits
                     else F.binary_cross_entropy(score, target)
                 )
+
                 self.optimizer_step(loss)
                 losses.append(loss.item())
 

@@ -30,9 +30,11 @@ class Evaluator:
     @th.no_grad()
     def run(self) -> None:
         observation = self.env.reset()
+
         for _ in range(self.steps):
             observation = th.as_tensor(observation, device=self.policy.device)
             policy_output = self.policy.act(observation, deterministic=True)
             observation = self.env.step(policy_output.action).observation
+
         if self.path:
             self.save()
