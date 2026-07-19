@@ -49,6 +49,4 @@ rollout = RolloutBuffer(horizon=128, num_envs=8, device="cuda")
 runner = Runner(env, policy, rollout, captures=captures)
 ```
 
-See `DESIGN.md` for the rationale, contracts, recurrent semantics, and GAIFO
-stage ordering. `ppo.py` and `carl_ppo.py` are complete
-feed-forward and recurrent examples.
+`ppo.py` and `carl_ppo.py` are complete feed-forward and recurrent examples.
