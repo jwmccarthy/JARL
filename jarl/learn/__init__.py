@@ -1,4 +1,4 @@
-from jarl.learn.gaifo import TrainDiscriminator
+from jarl.learn.gaifo import GAIFOLoss, GAIFOMinibatches
 from jarl.learn.optim import OptimizerStep, unique_parameters
 from jarl.learn.ppo import PPOConfig, PPOLoss
 from jarl.learn.program import (
@@ -13,11 +13,12 @@ __all__ = [
     "LearningProgram",
     "LearningWorkspace",
     "LossOutput",
+    "GAIFOLoss",
+    "GAIFOMinibatches",
     "OptimizerStep",
     "PPOConfig",
     "PPOLoss",
     "RunUpdate",
-    "TrainDiscriminator",
     "TransformRollout",
     "Update",
     "unique_parameters",

@@ -64,3 +64,13 @@ uv run --extra examples python examples/ppo.py
 
 Use `--total-env-steps` for a shorter run or `--checkpoint PATH` to save the
 trained policy.
+
+## GAIfO Example
+
+The [GAIfO example](examples/gaifo.py) collects expert LunarLander transitions
+with Gymnasium's heuristic controller, trains a transition discriminator, and
+uses its rewards for PPO:
+
+```bash
+uv run --extra examples python examples/gaifo.py
+```
