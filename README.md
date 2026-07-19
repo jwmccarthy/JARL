@@ -54,49 +54,13 @@ Training is split into six stages:
 
 ## PPO Example
 
-Given an environment, policy, and value function, a PPO training setup can be
-assembled from JARL's collection, storage, sampling, and learning components:
+The complete [LunarLander example](examples/ppo.py) builds the environment,
+policy, value function, PPO update, and training loop from JARL components. Run
+it with:
 
-```python
-from torch.optim import Adam
-
-from jarl.collect import LogProbCapture, PolicyVersionCapture, Runner, ValueCapture
-from jarl.learn import OptimizerStep, PPOConfig, PPOLoss, Update, unique_parameters
-from jarl.runtime import OnPolicySchedule, Trainer
-from jarl.sample import RolloutMinibatches
-from jarl.store import RolloutBuffer
-from jarl.transform import GAE
-
-rollout = RolloutBuffer(horizon=128, num_envs=env.n_envs, device="cuda")
-runner = Runner(
-    env,
-    policy,
-    rollout,
-    captures=(
-        LogProbCapture(),
-        PolicyVersionCapture(policy),
-        ValueCapture(value_function),
-    ),
-)
-
-parameters = unique_parameters((policy, value_function))
-optimizer = Adam(parameters, lr=2.5e-4)
-learner = Update(
-    transforms=(GAE(gamma=0.99, lambda_=0.95),),
-    sampler=RolloutMinibatches(batch_size=256, epochs=4),
-    loss=PPOLoss(
-        policy,
-        value_function,
-        PPOConfig(clip=0.2, entropy_coef=0.01),
-    ),
-    optimizer_step=OptimizerStep(
-        (policy, value_function),
-        optimizer,
-        max_grad_norm=0.5,
-    ),
-    section="PPO",
-)
-
-trainer = Trainer(runner, rollout, learner, OnPolicySchedule())
-trainer.run(total_env_steps=1_000_000)
+```bash
+uv run --extra examples python examples/ppo.py
 ```
+
+Use `--total-env-steps` for a shorter run or `--checkpoint PATH` to save the
+trained policy.
