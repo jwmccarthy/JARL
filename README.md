@@ -50,3 +50,19 @@ runner = Runner(env, policy, rollout, captures=captures)
 ```
 
 `ppo.py` and `carl_ppo.py` are complete feed-forward and recurrent examples.
+
+## Recurrent Networks
+
+GRU and LSTM feature modules are built in and use time-major sequences:
+
+```python
+from jarl.modules import GRU, LSTM
+
+gru = GRU(hidden_size=256, num_layers=2).build(observation_size)
+state = gru.initial_state(batch_size)
+features, state = gru(observations, state, reset=reset_mask)
+```
+
+GRU state is shaped `[batch, layers, hidden]`. LSTM packs hidden and cell state
+into one tensor shaped `[batch, 2, layers, hidden]`, so both work with the same
+collection and recurrent-sampling interfaces.
