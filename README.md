@@ -1,21 +1,23 @@
 # JARL (WIP)
 
-Still under active dev. Pivoting for now to develop proprietary on-GPU simulations for improved speed. In its current state, JARL is fit to implement and run a wide variety of algorithms.
+JARL is under active development and supports implementing a wide variety of reinforcement learning algorithms.
 
 JARL is written to be highly modular and allow for rapid prototyping of different RL algorithms.
 Eventually, many existing algorithms will be implemented by default within JARL. Their core components will therefore be available to rearrange and refactor into more novel approaches.
-JARL utilizes a few core proprietary objects...
 
-### Checkpoint spectator
+## Installation
 
-Watch the two most recently written compatible CARL checkpoints play a 1v1:
+Install the project and its locked dependencies with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-python watch_checkpoints.py
+uv sync
 ```
 
-Open `http://127.0.0.1:8788`. Drag to orbit, right-drag to pan, and scroll to
-zoom. Pass `--blue PATH --orange PATH` to select checkpoints explicitly.
+TensorBoard logging is available as an optional extra:
+
+```bash
+uv sync --extra logging
+```
 
 ## Runtime Structure
 
@@ -49,7 +51,7 @@ rollout = RolloutBuffer(horizon=128, num_envs=8, device="cuda")
 runner = Runner(env, policy, rollout, captures=captures)
 ```
 
-`ppo.py` and `carl_ppo.py` are complete feed-forward and recurrent examples.
+`ppo.py` is a complete feed-forward example.
 
 ## Recurrent Networks
 
