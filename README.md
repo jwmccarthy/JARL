@@ -49,8 +49,7 @@ Training is split into six stages:
 6. **Maintain**
 
    Target networks and learning-rate schedules are updated after training.
-   `LearningProgram` can coordinate multi-part updates when an algorithm needs
-   them.
+   `Algorithm` runs its update and transform stages in the order they are listed.
 
 ## PPO Example
 

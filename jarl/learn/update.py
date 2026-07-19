@@ -9,7 +9,7 @@ from jarl.transform.base import PrepareContext, apply_transforms
 
 @dataclass(frozen=True)
 class LossOutput:
-    loss: th.Tensor
+    loss:    th.Tensor
     metrics: dict[str, float]
 
 
@@ -28,6 +28,9 @@ class Update:
         self.optimizer_step = optimizer_step
         self.section = section
 
+    def run(self, experience):
+        return experience, self.update(experience)
+
     def update(self, experience: Rollout | TensorBatch) -> dict[str, dict[str, float]]:
         if isinstance(experience, Rollout):
             batch = experience.steps
@@ -38,26 +41,32 @@ class Update:
         else:
             raise TypeError("Update requires a Rollout or TensorBatch")
 
-        prepared = apply_transforms(batch, self.transforms, context)
-        validate = getattr(self.loss, "validate", None)
-        if validate is not None:
-            validate(prepared)
+        prepared_batch = apply_transforms(batch, self.transforms, context)
 
-        totals: dict[str, float] = {}
-        count = 0
-        for sample in self.sampler(prepared):
-            output = self.loss(sample)
-            if isinstance(output, th.Tensor):
-                output = LossOutput(output, {"loss": output.item()})
-            elif not isinstance(output, LossOutput):
+        metric_totals: dict[str, float] = {}
+        minibatch_count = 0
+
+        for sample in self.sampler(prepared_batch):
+            loss_output = self.loss(sample)
+
+            if isinstance(loss_output, th.Tensor):
+                loss_output = LossOutput(
+                    loss_output,
+                    {"loss": loss_output.item()},
+                )
+            elif not isinstance(loss_output, LossOutput):
                 raise TypeError("loss must return a tensor or LossOutput")
 
-            self.optimizer_step(output.loss)
-            for key, value in output.metrics.items():
-                totals[key] = totals.get(key, 0.0) + value
-            count += 1
+            self.optimizer_step(loss_output.loss)
 
-        if count == 0:
+            for metric_name, metric_value in loss_output.metrics.items():
+                metric_totals[metric_name] = (
+                    metric_totals.get(metric_name, 0.0) + metric_value
+                )
+
+            minibatch_count += 1
+
+        if minibatch_count == 0:
             raise RuntimeError("sampler produced no minibatches")
 
         self.optimizer_step.advance_scheduler()
@@ -65,5 +74,9 @@ class Update:
         if after_update is not None:
             after_update()
 
-        metrics = {key: value / count for key, value in totals.items()}
+        metrics = {
+            metric_name: metric_value / minibatch_count
+            for metric_name, metric_value in metric_totals.items()
+        }
+
         return {self.section: metrics}

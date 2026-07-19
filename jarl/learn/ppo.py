@@ -9,10 +9,10 @@ from jarl.sample.rollout import SequenceBatch
 
 @dataclass(frozen=True)
 class PPOConfig:
-    clip: float = 0.2
-    value_clip: float | None = 0.2
-    value_coef: float = 0.5
-    entropy_coef: float = 0.01
+    clip:                float = 0.2
+    value_clip:          float | None = 0.2
+    value_coef:          float = 0.5
+    entropy_coef:        float = 0.01
     normalize_advantage: bool = True
 
 
@@ -26,23 +26,6 @@ class PPOLoss:
         self.policy = policy
         self.value_function = value_function
         self.config = config
-
-    def validate(self, data: TensorBatch) -> None:
-        policy_versions = data["policy_version"].unique()
-        if (
-            policy_versions.numel() != 1
-            or policy_versions.item() != self.policy.version
-        ):
-            raise RuntimeError(
-                "rollout was not collected by the current policy version"
-            )
-
-        value_versions = data["value_version"].unique()
-        if (
-            value_versions.numel() != 1
-            or value_versions.item() != self.value_function.version
-        ):
-            raise RuntimeError("rollout was not valued by the current value version")
 
     def __call__(self, sample: TensorBatch | SequenceBatch) -> LossOutput:
         batch, state, reset, valid = self._unpack_sample(sample)
@@ -84,13 +67,6 @@ class PPOLoss:
                 "approx_kl": approx_kl.item(),
             },
         )
-
-    def after_update(self) -> None:
-        versioned = {
-            id(module): module for module in (self.policy, self.value_function)
-        }
-        for module in versioned.values():
-            module.increment_version()
 
     @staticmethod
     def _unpack_sample(sample: TensorBatch | SequenceBatch):

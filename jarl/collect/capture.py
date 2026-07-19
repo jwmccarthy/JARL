@@ -26,24 +26,6 @@ class RecurrentStateCapture:
         return {"policy_state": context.state}
 
 
-class PolicyVersionCapture:
-    def __init__(self, policy) -> None:
-        self.policy = policy
-
-    def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
-        boundary = th.as_tensor(
-            context.env_step.terminated,
-            device=context.observation.device,
-        )
-        return {
-            "policy_version": th.full_like(
-                boundary,
-                self.policy.version,
-                dtype=th.long,
-            )
-        }
-
-
 class ValueCapture:
     def __init__(self, estimator) -> None:
         self.estimator = estimator
@@ -62,14 +44,6 @@ class ValueCapture:
             "baseline_next_value": self.estimator.value(
                 next_obs,
                 context.policy_output.next_state,
-            ),
-            "value_version": th.full_like(
-                th.as_tensor(
-                    context.env_step.terminated,
-                    device=context.observation.device,
-                ),
-                self.estimator.version,
-                dtype=th.long,
             ),
         }
 

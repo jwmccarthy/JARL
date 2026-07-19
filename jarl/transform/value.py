@@ -23,9 +23,4 @@ class MaterializeValues:
         return batch.with_fields(
             baseline_value=value,
             baseline_next_value=next_value,
-            value_version=th.full_like(
-                value,
-                self.estimator.version,
-                dtype=th.long,
-            ),
         )
