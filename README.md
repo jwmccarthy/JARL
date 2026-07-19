@@ -52,18 +52,50 @@ Training is split into six stages:
    `LearningProgram` can coordinate multi-part updates when an algorithm needs
    them.
 
-## Recurrent Networks
+## PPO Example
 
-GRU and LSTM feature modules are built in and use time-major sequences:
+Given an environment, policy, and value function, a PPO training setup can be
+assembled from JARL's collection, storage, sampling, and learning components:
 
 ```python
-from jarl.modules import GRU, LSTM
+from torch.optim import Adam
 
-gru = GRU(hidden_size=256, num_layers=2).build(observation_size)
-state = gru.initial_state(batch_size)
-features, state = gru(observations, state, reset=reset_mask)
+from jarl.collect import LogProbCapture, PolicyVersionCapture, Runner, ValueCapture
+from jarl.learn import OptimizerStep, PPOConfig, PPOLearner, PPOOptimizer, unique_parameters
+from jarl.runtime import OnPolicySchedule, Trainer
+from jarl.sample import RolloutMinibatches
+from jarl.store import RolloutBuffer
+from jarl.transform import GAE
+
+rollout = RolloutBuffer(horizon=128, num_envs=env.n_envs, device="cuda")
+runner = Runner(
+    env,
+    policy,
+    rollout,
+    captures=(
+        LogProbCapture(),
+        PolicyVersionCapture(policy),
+        ValueCapture(value_function),
+    ),
+)
+
+parameters = unique_parameters((policy, value_function))
+optimizer = Adam(parameters, lr=2.5e-4)
+learner = PPOLearner(
+    transforms=(GAE(gamma=0.99, lambda_=0.95),),
+    optimizer=PPOOptimizer(
+        policy,
+        value_function,
+        RolloutMinibatches(batch_size=256, epochs=4),
+        OptimizerStep(
+            (policy, value_function),
+            optimizer,
+            max_grad_norm=0.5,
+        ),
+        PPOConfig(clip=0.2, entropy_coef=0.01),
+    ),
+)
+
+trainer = Trainer(runner, rollout, learner, OnPolicySchedule())
+trainer.run(total_env_steps=1_000_000)
 ```
-
-GRU state is shaped `[batch, layers, hidden]`. LSTM packs hidden and cell state
-into one tensor shaped `[batch, 2, layers, hidden]`, so both work with the same
-collection and recurrent-sampling interfaces.
