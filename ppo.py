@@ -15,8 +15,8 @@ from jarl.collect import (
 from jarl.learn import (
     OptimizerStep,
     PPOConfig,
-    PPOLearner,
-    PPOOptimizer,
+    PPOLoss,
+    Update,
     unique_parameters,
 )
 from jarl.sample import RolloutMinibatches
@@ -104,28 +104,23 @@ training_vector_steps = int(1.25e6)
 parameters = unique_parameters((policy, critic))
 optimizer = Adam(parameters, lr=2.5e-4)
 
-ppo = PPOLearner(
+ppo = Update(
     transforms=(SignRewards(), GAE()),
-    optimizer=PPOOptimizer(
-        policy,
-        critic,
-        RolloutMinibatches(batch_size=256, epochs=4),
-        OptimizerStep(
-            (policy, critic),
+    sampler=RolloutMinibatches(batch_size=256, epochs=4),
+    loss=PPOLoss(policy, critic, PPOConfig(clip=0.1)),
+    optimizer_step=OptimizerStep(
+        (policy, critic),
+        optimizer,
+        max_grad_norm=0.5,
+        scheduler=LinearLR(
             optimizer,
-            max_grad_norm=0.5,
-            scheduler=LinearLR(
-                optimizer,
-                start_factor=1.0,
-                end_factor=0.0,
-                total_iters=(
-                    training_vector_steps + buffer.horizon - 1
-                )
-                // buffer.horizon,
-            ),
+            start_factor=1.0,
+            end_factor=0.0,
+            total_iters=(training_vector_steps + buffer.horizon - 1)
+            // buffer.horizon,
         ),
-        PPOConfig(clip=0.1),
     ),
+    section="PPO",
 )
 
 eval_env = SyncGymEnv(

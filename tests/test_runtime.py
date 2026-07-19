@@ -8,10 +8,11 @@ from jarl.learn import (
     LearningProgram,
     OptimizerStep,
     PPOConfig,
-    PPOLearner,
-    PPOOptimizer,
+    PPOLoss,
+    RunUpdate,
     TrainDiscriminator,
     TransformRollout,
+    Update,
     unique_parameters,
 )
 from jarl.modules.operator import ValueFunction
@@ -135,6 +136,41 @@ class RuntimeTests(unittest.TestCase):
             th.tensor([False, False, True, False]),
         )
 
+    def test_update_prepares_samples_and_aggregates_arbitrary_loss(self):
+        model = nn.Linear(1, 1, bias=False)
+        nn.init.zeros_(model.weight)
+        transform_calls = []
+        sampled_fields = []
+
+        class AddTarget:
+            def __call__(self, batch, context):
+                transform_calls.append(context)
+                return batch.with_fields(target=batch["value"] + 1)
+
+        class TwoBatches:
+            def __call__(self, batch):
+                sampled_fields.append(set(batch))
+                yield batch[:2]
+                yield batch[2:]
+
+        def squared_loss(batch):
+            return (model.weight.squeeze() - batch["target"].mean()).pow(2)
+
+        optimizer = th.optim.SGD(model.parameters(), lr=0.0)
+        update = Update(
+            transforms=(AddTarget(),),
+            sampler=TwoBatches(),
+            loss=squared_loss,
+            optimizer_step=OptimizerStep(model, optimizer),
+            section="Test",
+        )
+
+        metrics = update.update(TensorBatch({"value": th.arange(4.0)}))
+
+        self.assertEqual(len(transform_calls), 1)
+        self.assertEqual(sampled_fields, [{"value", "target"}])
+        self.assertEqual(metrics, {"Test": {"loss": 7.25}})
+
     def test_learning_program_preserves_stage_order(self):
         order = []
 
@@ -148,16 +184,22 @@ class RuntimeTests(unittest.TestCase):
                 if self.output:
                     workspace.publish(self.output, self.output)
 
+        class RecordingUpdate:
+            def update(self, experience):
+                order.append("optimize")
+                return {"Test": {"updates": 1.0}}
+
         program = LearningProgram(
             [
                 Stage("reward", "rewarded"),
                 Stage("prepare", "prepared"),
-                Stage("optimize"),
+                RunUpdate("prepared", RecordingUpdate()),
             ]
         )
 
-        program.update(object())
+        metrics = program.update(object())
         self.assertEqual(order, ["reward", "prepare", "optimize"])
+        self.assertEqual(metrics, {"Test": {"updates": 1.0}})
 
     def test_gaifo_stage_trains_discriminator_before_reward_materialization(self):
         class Discriminator(nn.Module):
@@ -249,15 +291,12 @@ class RuntimeTests(unittest.TestCase):
         )
 
         optimizer = th.optim.Adam(unique_parameters((policy, critic)), lr=1e-3)
-        learner = PPOLearner(
+        learner = Update(
             transforms=(GAE(),),
-            optimizer=PPOOptimizer(
-                policy,
-                critic,
-                RolloutMinibatches(batch_size=4),
-                OptimizerStep((policy, critic), optimizer),
-                PPOConfig(),
-            ),
+            sampler=RolloutMinibatches(batch_size=4),
+            loss=PPOLoss(policy, critic, PPOConfig()),
+            optimizer_step=OptimizerStep((policy, critic), optimizer),
+            section="PPO",
         )
 
         metrics = learner.update(rollout)

@@ -7,7 +7,7 @@ from jarl.transform.base import PrepareContext, apply_transforms
 @dataclass
 class LearningWorkspace:
     experience: dict[str, object]
-    metrics:    dict[str, dict[str, float]] = field(default_factory=dict)
+    metrics: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def require(self, name: str):
         try:
@@ -58,15 +58,12 @@ class TransformRollout:
         workspace.publish(self.output, rollout.with_steps(steps))
 
 
-class OptimizePPO:
-    def __init__(self, rollout: str, optimizer, section: str = "PPO") -> None:
-        self.rollout = rollout
-        self.optimizer = optimizer
-        self.section = section
+class RunUpdate:
+    def __init__(self, experience: str, update) -> None:
+        self.experience = experience
+        self.update = update
 
     def run(self, workspace: LearningWorkspace) -> None:
-        rollout = workspace.require(self.rollout)
-        workspace.add_metrics(
-            self.section,
-            self.optimizer.update(rollout.steps),
-        )
+        experience = workspace.require(self.experience)
+        for section, metrics in self.update.update(experience).items():
+            workspace.add_metrics(section, metrics)

@@ -1,22 +1,24 @@
 from jarl.learn.gaifo import TrainDiscriminator
 from jarl.learn.optim import OptimizerStep, unique_parameters
-from jarl.learn.ppo import PPOConfig, PPOLearner, PPOOptimizer
+from jarl.learn.ppo import PPOConfig, PPOLoss
 from jarl.learn.program import (
     LearningProgram,
     LearningWorkspace,
-    OptimizePPO,
+    RunUpdate,
     TransformRollout,
 )
+from jarl.learn.update import LossOutput, Update
 
 __all__ = [
     "LearningProgram",
     "LearningWorkspace",
-    "OptimizePPO",
+    "LossOutput",
     "OptimizerStep",
     "PPOConfig",
-    "PPOLearner",
-    "PPOOptimizer",
+    "PPOLoss",
+    "RunUpdate",
     "TrainDiscriminator",
     "TransformRollout",
+    "Update",
     "unique_parameters",
 ]

@@ -61,7 +61,7 @@ assembled from JARL's collection, storage, sampling, and learning components:
 from torch.optim import Adam
 
 from jarl.collect import LogProbCapture, PolicyVersionCapture, Runner, ValueCapture
-from jarl.learn import OptimizerStep, PPOConfig, PPOLearner, PPOOptimizer, unique_parameters
+from jarl.learn import OptimizerStep, PPOConfig, PPOLoss, Update, unique_parameters
 from jarl.runtime import OnPolicySchedule, Trainer
 from jarl.sample import RolloutMinibatches
 from jarl.store import RolloutBuffer
@@ -81,19 +81,20 @@ runner = Runner(
 
 parameters = unique_parameters((policy, value_function))
 optimizer = Adam(parameters, lr=2.5e-4)
-learner = PPOLearner(
+learner = Update(
     transforms=(GAE(gamma=0.99, lambda_=0.95),),
-    optimizer=PPOOptimizer(
+    sampler=RolloutMinibatches(batch_size=256, epochs=4),
+    loss=PPOLoss(
         policy,
         value_function,
-        RolloutMinibatches(batch_size=256, epochs=4),
-        OptimizerStep(
-            (policy, value_function),
-            optimizer,
-            max_grad_norm=0.5,
-        ),
         PPOConfig(clip=0.2, entropy_coef=0.01),
     ),
+    optimizer_step=OptimizerStep(
+        (policy, value_function),
+        optimizer,
+        max_grad_norm=0.5,
+    ),
+    section="PPO",
 )
 
 trainer = Trainer(runner, rollout, learner, OnPolicySchedule())
