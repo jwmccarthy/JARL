@@ -1,6 +1,7 @@
 import copy
 import random
 from collections import OrderedDict
+from pathlib import Path
 
 import torch as th
 
@@ -17,6 +18,7 @@ class SnapshotPool:
         snapshot_interval: int,
         active_cache_size: int = 4,
         seed: int = 0,
+        checkpoint_dir: Path | None = None,
     ) -> None:
         if max_size < 1 or snapshot_interval < 1 or active_cache_size < 1:
             raise ValueError("snapshot pool settings must be positive")
@@ -25,6 +27,9 @@ class SnapshotPool:
         self.snapshot_interval = snapshot_interval
         self.active_cache_size = active_cache_size
         self._random = random.Random(seed)
+        self.checkpoint_dir = checkpoint_dir
+        if self.checkpoint_dir is not None:
+            self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self._snapshots = OrderedDict()
         self._active = OrderedDict()
         self._next_id = 0
@@ -46,6 +51,11 @@ class SnapshotPool:
         self._next_id += 1
         self._snapshots[snapshot_id] = snapshot
         self._last_snapshot = timesteps
+        if self.checkpoint_dir is not None:
+            th.save(
+                snapshot.state_dict(),
+                self.checkpoint_dir / f"policy_{timesteps:012d}.pt",
+            )
 
         protected = set(protected_ids) | {snapshot_id}
         removable = [key for key in self._snapshots if key not in protected]
