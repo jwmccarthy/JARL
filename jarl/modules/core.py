@@ -3,7 +3,11 @@ from torch import Tensor
 
 from typing import List, Self
 
+from jarl.modules.recurrent import GRU, LSTM
 from jarl.modules.utils import init_layer
+
+
+__all__ = ["CNN", "GRU", "LSTM", "MLP"]
 
 
 class MLP(nn.Module):

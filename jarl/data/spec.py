@@ -13,7 +13,7 @@ from jarl.data.types import Device, torch_to_numpy
 class TensorSpec:
     """Tensor spec w/ shape, dtype, & numpy conversion"""
 
-    shape:  tuple
+    shape:  tuple[int, ...]
     dtype:  th.dtype
     stype:  np.dtype = field(init=False)
     device: Device = field(default="cpu", kw_only=True)
@@ -24,6 +24,7 @@ class TensorSpec:
     def __call__(self, x: ndarray) -> Tensor:
         if not isinstance(x, ndarray):
             x = np.array(x)
+
         assert self.shape == x.shape
         assert self.stype == x.dtype
         return th.from_numpy(x).to(self.device)

@@ -23,9 +23,9 @@ class TensorSpace(TensorSpec, ABC):
     """Gymnasium space as tensor spec"""
 
     space: Space
-    shape: tuple = field(init=False)
-    dtype: th.dtype = field(init=False)
-    stype: np.dtype = field(init=False)
+    shape: tuple[int, ...] = field(init=False)
+    dtype: th.dtype        = field(init=False)
+    stype: np.dtype        = field(init=False)
 
     def __post_init__(self) -> None:
         self.shape = self.space.shape
@@ -73,7 +73,7 @@ class BoxSpace(TensorSpace):
     
     @property
     def flat_dim(self) -> int:
-        return np.prod(self.shape)
+        return int(np.prod(self.shape))
     
     @property
     def numel(self) -> int:
@@ -126,7 +126,7 @@ class MultiDiscreteSpace(TensorSpace):
 class MultiBinarySpace(TensorSpace):
     """Tensor spec for MultiBinary gym space"""
 
-    _n: int | tuple | np.ndarray = field(init=False)
+    _n: Tensor = field(init=False)
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -138,7 +138,7 @@ class MultiBinarySpace(TensorSpace):
 
     @property
     def flat_dim(self) -> int:
-        return np.prod(self._n)
+        return int(self._n.prod().item())
     
     @property
     def numel(self) -> int:
@@ -147,12 +147,11 @@ class MultiBinarySpace(TensorSpace):
 
 @dataclass
 class ConcatSpace(TensorSpec):
-
     space: TensorSpace
     count: int
-    shape: tuple = field(init=False)
-    dtype: th.dtype = field(init=False)
-    stype: np.dtype = field(init=False)
+    shape: tuple[int, ...] = field(init=False)
+    dtype: th.dtype        = field(init=False)
+    stype: np.dtype        = field(init=False)
 
     def __post_init__(self) -> None:
         self.shape = (self.count * self.space.shape[0],) \

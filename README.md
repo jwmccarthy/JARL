@@ -1,72 +1,75 @@
 # JARL (WIP)
 
-Still under active dev. Pivoting for now to develop proprietary on-GPU simulations for improved speed. In its current state, JARL is fit to implement and run a wide variety of algorithms.
+JARL is under active development and supports implementing a wide variety of reinforcement learning algorithms.
 
 JARL is written to be highly modular and allow for rapid prototyping of different RL algorithms.
 Eventually, many existing algorithms will be implemented by default within JARL. Their core components will therefore be available to rearrange and refactor into more novel approaches.
-JARL utilizes a few core proprietary objects...
 
-### ```MultiTensor```
+## Installation
 
-A ```MultiTensor``` is subclasses the Python dictionary and contains same-size PyTorch tensors (with dot attribute access). It is indexable in the same way a tensor is, for instance:
+Install the project and its locked dependencies with [uv](https://docs.astral.sh/uv/):
 
-```python
-import torch as th
-
-data = MultiTensor(
-    a=th.rand((5,3)),
-    b=th.rand((5,)),
-)
-
-th.equal(data[:3].a, data.a[:3])  # => True
+```bash
+uv sync
 ```
 
-This is useful for the construction of easy-to-manipulate replay buffers and the passing of complex information between modules.
+TensorBoard logging is available as an optional extra:
 
-### ```TrainGraph```
-
-The ```TrainGraph``` is the core of the RL training loop in JARL. It relies on the following components:
-
-#### 1. ```Sampler```
-
-A ```Sampler``` maps the ```MultiTensor``` served by the replay buffer to a generator of ```MultiTensor```, each containing a subset of the original data.
-
-#### 2. ```ModuleUpdate```
-
-A ```ModuleUpdate``` contains a set of ```torch.nn.Module``` derivative classes, and takes as input a ```MultiTensor``` of the prerequisite information for its loss calculation. Each ```ModuleUpdate``` also has a set of required keys that should be present in its input. ```ModuleUpdate.ready(t)``` indicates whether the module is ready to update at a given timestep, which is determined by its update frequency (```freq``` parameter).
-
-#### 3. ```DataModifier```
-
-A ```DataModifier``` takes a ```MultiTensor``` as input and returns the same object plus some modifications (altered contents, additional information, etc.) Similar to ```ModuleUpdate```, each ```DataModifier``` has a set of required keys, as well as a set of keys that it produces in its output.
-
-#### Utilizing ```TrainGraph```
-
-With these 3 module types in mind, we can construct a ```TrainGraph```. We initialize it with a sampler and a list of ```ModuleUpdate```, and then iteratively add the ```DataModifier``` we need via the ```TrainGraph.add_modifier()``` method.
-
-```python
-graph = (
-    TrainGraph(BatchSampler(), PPOUpdate(policy, critic))
-    .add_modifier(ComputeValues(critic))
-    .add_modifier(ComputeAdvantages())
-    .add_modifier(ComputeReturns())
-    .add_modifier(ComputeLogProbs(policy))
-)
+```bash
+uv sync --extra logging
 ```
 
-At the end we call 
+## Runtime Structure
 
-```python
-graph.compile()
+Training is split into six stages:
+
+1. **Collect**
+
+   `Runner` uses the policy to step the environment. Capture components can
+   also record values, action log probabilities, and recurrent state.
+
+2. **Store**
+
+   `RolloutBuffer` keeps ordered on-policy data until it is consumed.
+   `ReplayBuffer` keeps off-policy data for reuse.
+
+3. **Sample**
+
+   Samplers turn stored data into flat or recurrent minibatches.
+
+4. **Prepare**
+
+   Transforms calculate the rewards, advantages, returns, and targets needed
+   for training.
+
+5. **Optimize**
+
+   Learners run the optimizer steps that update each model.
+
+6. **Maintain**
+
+   Target networks and learning-rate schedules are updated after training.
+   `Algorithm` runs its update and transform stages in the order they are listed.
+
+## PPO Example
+
+The complete [LunarLander example](examples/ppo.py) builds the environment,
+policy, value function, PPO update, and training loop from JARL components. Run
+it with:
+
+```bash
+uv run --extra examples python examples/ppo.py
 ```
 
-which does the following:
+Use `--total-env-steps` for a shorter run or `--checkpoint PATH` to save the
+trained policy.
 
-1. Perform a topological sort of all ```DataModifier``` based on their dependencies (required and produced keys)
-2. For each combination of ```ModuleUpdate``` in the graph, extract the necessary ```DataModifier``` sequence
-3. Create a function composition from each sequence and store indexed by binary mask of module combination
+## GAIfO Example
 
-From here, we can have updates of varying frequency that run only their necessary prerequisite ```DataModifier``` when they're ready. This is wildly overkill for simple algorithms, but it is highly generalizable, customizable, and makes intuitive sense for algorithms with multiple updates that operate at different frequencies. For instance, SAC may utilize different update timings for its Q updates, policy updates, and target network Polyak updates.
+The [GAIfO example](examples/gaifo.py) collects expert LunarLander transitions
+with Gymnasium's heuristic controller, trains a transition discriminator, and
+uses its rewards for PPO:
 
-#### Generalized Structure
-
-Notably, on-policy and off-policy algorithms are only distinguished in JARL by the size of the replay buffer in relation to the update timings. For on-policy algorithms, the circular replay buffer will have a maximum capacity equal to the update frequency. Off-policy algorithms will have much larger buffers than the update frequency. This simplifies the underlying implementation by avoiding unnecessary object distinctions, and also allows for the use of any module in both on-policy and off-policy contexts.
+```bash
+uv run --extra examples python examples/gaifo.py
+```
