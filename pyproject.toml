@@ -8,7 +8,7 @@ dependencies = [
     "gymnasium>=1.0",
     "numpy>=1.24",
     "rich>=14.0",
-    "torch>=2.0",
+    "torch>=2.7",
 ]
 
 [project.optional-dependencies]
@@ -23,9 +23,9 @@ build-backend = "uv_build"
 module-root = ""
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu126" }
+torch = { index = "pytorch-cu128" }
 
 [[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
