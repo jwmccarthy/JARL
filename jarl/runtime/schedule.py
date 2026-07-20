@@ -2,6 +2,9 @@ from jarl.store.rollout import RolloutBuffer
 
 
 class OnPolicySchedule:
+    def progress_vector_steps(self, buffer: RolloutBuffer) -> int:
+        return buffer.horizon
+
     def expected_updates(
         self,
         vector_steps: int,
@@ -31,6 +34,9 @@ class OffPolicySchedule:
     ) -> None:
         self.learning_starts_env_steps = learning_starts_env_steps
         self.update_every_vector_steps = update_every_vector_steps
+
+    def progress_vector_steps(self, buffer) -> int:
+        return self.update_every_vector_steps
 
     def expected_updates(
         self,

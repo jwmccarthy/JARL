@@ -5,16 +5,11 @@ import gymnasium as gym
 from typing import Callable, Any
 from numpy.typing import NDArray
 
-from jarl.data.records import EnvStep
 from jarl.envs.space import torch_space
 
 
 class SyncGymEnv:
-    def __init__(
-        self, 
-        env_func: Callable[[Any], gym.Env], 
-        n_envs: int = 1
-    ) -> None:
+    def __init__(self, env_func: Callable[[Any], gym.Env], n_envs: int = 1) -> None:
         self.n_envs = n_envs
         self.envs = [env_func() for _ in range(n_envs)]
 
@@ -36,11 +31,9 @@ class SyncGymEnv:
         observations = [env.reset()[0].astype(np.float32) for env in self.envs]
         return np.stack(observations)
 
-    def step(self, action: NDArray | th.Tensor) -> EnvStep:
+    def step(self, action: NDArray | th.Tensor):
         actions = (
-            action.detach().cpu().numpy()
-            if isinstance(action, th.Tensor)
-            else action
+            action.detach().cpu().numpy() if isinstance(action, th.Tensor) else action
         )
 
         reward, length = [], []
@@ -54,20 +47,23 @@ class SyncGymEnv:
             self.truncated[index] = truncated
 
             done = terminated | truncated
-            self.next_observation[index] = (
-                env.reset()[0] if done else observation
-            )
+            self.next_observation[index] = env.reset()[0] if done else observation
 
             # pre-wrapper episodic reward
             if done and info:
                 reward.append(info.reward)
                 length.append(info.length)
 
-        return EnvStep(
-            next_obs=self.observation.copy(),
-            observation=self.next_observation.copy(),
-            reward=self.reward.copy(),
-            terminated=self.terminated.copy(),
-            truncated=self.truncated.copy(),
-            info={"reward": reward, "length": length},
+        done = self.terminated | self.truncated
+        return (
+            self.next_observation.copy(),
+            self.reward.copy(),
+            self.terminated.copy(),
+            self.truncated.copy(),
+            {
+                "reward": reward,
+                "length": length,
+                "final_obs": self.observation.copy(),
+                "_final_obs": done.copy(),
+            },
         )

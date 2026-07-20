@@ -91,7 +91,7 @@ class TransitionDiscriminator(nn.Module):
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train GAIfO on LunarLander-v3")
-    parser.add_argument("--total-env-steps", type=int, default=500_000)
+    parser.add_argument("--total-timesteps", type=int, default=500_000)
     parser.add_argument("--expert-steps", type=int, default=10_000)
     parser.add_argument("--num-envs", type=int, default=8)
     parser.add_argument("--rollout-steps", type=int, default=256)
@@ -162,8 +162,8 @@ def build_gaifo(
 def main() -> None:
     arguments = parse_arguments()
 
-    if arguments.total_env_steps < arguments.num_envs:
-        raise ValueError("total-env-steps must include at least one vector step")
+    if arguments.total_timesteps < arguments.num_envs:
+        raise ValueError("total-timesteps must include at least one vector step")
     if (
         min(
             arguments.expert_steps,
@@ -197,7 +197,7 @@ def main() -> None:
     )
 
     trainer = Trainer(runner, rollout, gaifo, OnPolicySchedule())
-    trainer.run(arguments.total_env_steps)
+    trainer.run(arguments.total_timesteps)
 
     if arguments.checkpoint:
         arguments.checkpoint.parent.mkdir(parents=True, exist_ok=True)

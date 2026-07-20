@@ -36,11 +36,13 @@ class PPOLoss:
             state,
             reset=reset,
         )
-        value = self.value_function.evaluate_values(
-            batch["observation"],
-            state,
-            reset=reset,
-        )
+        value = evaluation.value
+        if value is None:
+            value = self.value_function.evaluate_values(
+                batch["observation"],
+                state,
+                reset=reset,
+            )
 
         advantage = self._normalize_advantage(batch["advantage"][valid])
         log_ratio = evaluation.log_prob[valid] - batch["old_log_prob"][valid]

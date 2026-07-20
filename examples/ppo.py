@@ -23,7 +23,7 @@ from lunar_lander import build_collection, build_policy_and_value, make_environm
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train PPO on LunarLander-v3")
-    parser.add_argument("--total-env-steps", type=int, default=500_000)
+    parser.add_argument("--total-timesteps", type=int, default=500_000)
     parser.add_argument("--num-envs", type=int, default=8)
     parser.add_argument("--rollout-steps", type=int, default=256)
     parser.add_argument("--device", choices=("cpu", "cuda"))
@@ -35,7 +35,7 @@ def parse_arguments() -> argparse.Namespace:
 def build_ppo(environment, policy, value_function, rollout, arguments) -> Algorithm:
     policy_parameters = unique_parameters((policy, value_function))
     policy_optimizer = Adam(policy_parameters, lr=3e-4)
-    vector_steps = arguments.total_env_steps // environment.n_envs
+    vector_steps = arguments.total_timesteps // environment.n_envs
     update_count = (vector_steps + rollout.horizon - 1) // rollout.horizon
     ppo_update = Update(
         transforms=(GAE(gamma=0.99, lambda_=0.95),),
@@ -71,8 +71,8 @@ def build_ppo(environment, policy, value_function, rollout, arguments) -> Algori
 def main() -> None:
     arguments = parse_arguments()
 
-    if arguments.total_env_steps < arguments.num_envs:
-        raise ValueError("total-env-steps must include at least one vector step")
+    if arguments.total_timesteps < arguments.num_envs:
+        raise ValueError("total-timesteps must include at least one vector step")
     if arguments.rollout_steps < 1 or arguments.num_envs < 1:
         raise ValueError("num-envs and rollout-steps must be positive")
 
@@ -89,7 +89,7 @@ def main() -> None:
     ppo = build_ppo(environment, policy, value_function, rollout, arguments)
 
     trainer = Trainer(runner, rollout, ppo, OnPolicySchedule())
-    trainer.run(arguments.total_env_steps)
+    trainer.run(arguments.total_timesteps)
 
     if arguments.checkpoint:
         arguments.checkpoint.parent.mkdir(parents=True, exist_ok=True)

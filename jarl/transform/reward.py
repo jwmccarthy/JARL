@@ -13,6 +13,51 @@ class SignRewards:
         return batch.replace_fields(reward=batch["reward"].sign())
 
 
+class TeamSpirit:
+    def __init__(
+        self,
+        num_matches: int,
+        team_sizes: tuple[int, int],
+        spirit: float,
+    ) -> None:
+        if num_matches < 1 or any(size < 1 for size in team_sizes):
+            raise ValueError("team dimensions must be positive")
+        if not 0.0 <= spirit <= 1.0:
+            raise ValueError("team spirit must be between zero and one")
+
+        self.num_matches = num_matches
+        self.team_sizes = team_sizes
+        self.players_per_match = sum(team_sizes)
+        self.spirit = spirit
+
+    @th.no_grad()
+    def __call__(
+        self, batch: TensorBatch, context: PrepareContext
+    ) -> TensorBatch:
+        reward = batch["reward"]
+        expected = self.num_matches * self.players_per_match
+        if reward.shape[-1] != expected:
+            raise ValueError(
+                f"expected {expected} actor rewards, got {reward.shape[-1]}"
+            )
+
+        grouped = reward.reshape(
+            *reward.shape[:-1], self.num_matches, self.players_per_match
+        )
+        mixed = grouped.clone()
+        left = 0
+        for size in self.team_sizes:
+            right = left + size
+            team_reward = grouped[..., left:right]
+            team_mean = team_reward.mean(dim=-1, keepdim=True)
+            mixed[..., left:right] = (
+                (1.0 - self.spirit) * team_reward + self.spirit * team_mean
+            )
+            left = right
+
+        return batch.replace_fields(reward=mixed.reshape_as(reward))
+
+
 class DiscriminatorReward:
     def __init__(
         self,

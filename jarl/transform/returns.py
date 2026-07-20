@@ -16,14 +16,13 @@ class GAE:
         self.reward_field = reward_field
 
     @th.no_grad()
-    def __call__(
-        self, batch: TensorBatch, context: PrepareContext
-    ) -> TensorBatch:
+    def __call__(self, batch: TensorBatch, context: PrepareContext) -> TensorBatch:
         value = batch["baseline_value"]
-        bootstrap = (~batch["terminated"]).to(value.dtype)
-        continues = (~(batch["terminated"] | batch["truncated"])).to(
-            value.dtype
-        )
+        bootstrap = batch.get("bootstrap")
+        if bootstrap is None:
+            bootstrap = ~batch["terminated"]
+        bootstrap = bootstrap.to(value.dtype)
+        continues = (~(batch["terminated"] | batch["truncated"])).to(value.dtype)
         delta = (
             batch[self.reward_field]
             + self.gamma * batch["baseline_next_value"] * bootstrap
@@ -50,9 +49,7 @@ class DiscountedReturns:
         self.reward_field = reward_field
 
     @th.no_grad()
-    def __call__(
-        self, batch: TensorBatch, context: PrepareContext
-    ) -> TensorBatch:
+    def __call__(self, batch: TensorBatch, context: PrepareContext) -> TensorBatch:
         reward = batch[self.reward_field]
         continues = ~(batch["terminated"] | batch["truncated"])
         returns = th.zeros_like(reward)
@@ -71,9 +68,7 @@ class NStepTarget:
         self.gamma = gamma
 
     @th.no_grad()
-    def __call__(
-        self, window: TensorBatch, context: PrepareContext
-    ) -> TensorBatch:
+    def __call__(self, window: TensorBatch, context: PrepareContext) -> TensorBatch:
         if len(window.shape) < 2:
             raise ValueError("n-step targets require [time, batch, ...] windows")
 
@@ -85,9 +80,12 @@ class NStepTarget:
             target += discount * reward[index]
             discount *= self.gamma
 
+        bootstrap = window.get("bootstrap")
+        if bootstrap is None:
+            bootstrap = ~window["terminated"]
         target += (
             discount
-            * (~window["terminated"][-1]).to(reward.dtype)
+            * bootstrap[-1].to(reward.dtype)
             * self.bootstrap(window["next_obs"][-1])
         )
 

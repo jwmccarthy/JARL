@@ -1,17 +1,30 @@
 import numpy as np
-from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
+from contextlib import contextmanager
+from rich.console import Group
+from rich.live import Live
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Any, Generator, List, Mapping
 
 
 class Logger:
     def __init__(self, log_dir: str = None):
-        self.episode_data = defaultdict(list)
+        self.episode_data = defaultdict(lambda: deque(maxlen=50))
         self.step = 0
         self.writer = None
         self._progress = None
-        self._updates_task = None
+        self._metrics = None
+        self._reward_task = None
+        self._episode_length_task = None
+        self._global_t_task = None
 
         if log_dir:
             from torch.utils.tensorboard import SummaryWriter
@@ -34,12 +47,25 @@ class Logger:
 
         new_info = dict(global_t=t)
 
-        for key, val in self.episode_data.items():
+        for key, values in self.episode_data.items():
             if info[key]:
-                new_info |= {key: np.mean(val[-50:])}
+                new_info |= {key: np.mean(values)}
 
         update = dict(Episode=new_info)
         self._write(update, t)
+
+        if self._metrics is not None:
+            if "reward" in new_info:
+                self._metrics.update(
+                    self._reward_task,
+                    value=f"{new_info['reward']:,.2f}",
+                )
+
+            if "length" in new_info:
+                self._metrics.update(
+                    self._episode_length_task,
+                    value=f"{new_info['length']:,.1f}",
+                )
 
     def update(self, info: Mapping[str, Any], step: int = None) -> None:
         if step is not None:
@@ -47,37 +73,56 @@ class Logger:
 
         self._write(info, self.step)
 
-        if self._progress is not None and self._updates_task is not None:
-            self._progress.advance(self._updates_task)
-
-    def progress(
-        self,
-        vector_steps: int,
-        environments_per_step: int,
-        learner_updates: int,
-    ) -> Generator[int, None, None]:
+    @contextmanager
+    def progress(self, total_timesteps: int) -> Generator[None, None, None]:
         progress = Progress(
             TextColumn("[bold]{task.description}"),
             BarColumn(),
             TaskProgressColumn(),
             TextColumn("{task.completed:,.0f}/{task.total:,.0f}"),
+            TimeElapsedColumn(),
+            TextColumn("<"),
+            TimeRemainingColumn(),
+            auto_refresh=False,
+        )
+        metrics = Progress(
+            TextColumn("[bold]{task.description}"),
+            TextColumn("{task.fields[value]}"),
+            auto_refresh=False,
         )
         global_t_task = progress.add_task(
             "global_t",
-            total=vector_steps * environments_per_step,
+            total=total_timesteps,
         )
-        updates_task = progress.add_task("updates", total=learner_updates)
+        reward_task = metrics.add_task(
+            "reward",
+            total=None,
+            value="-",
+        )
+        episode_length_task = metrics.add_task(
+            "episode_length",
+            total=None,
+            value="-",
+        )
         self._progress = progress
-        self._updates_task = updates_task
+        self._metrics = metrics
+        self._global_t_task = global_t_task
+        self._reward_task = reward_task
+        self._episode_length_task = episode_length_task
 
         try:
-            with progress:
-                for vector_step in range(vector_steps):
-                    yield vector_step
-                    progress.advance(global_t_task, environments_per_step)
+            with Live(Group(progress, metrics), refresh_per_second=10):
+                yield
         finally:
             self._progress = None
-            self._updates_task = None
+            self._metrics = None
+            self._global_t_task = None
+            self._reward_task = None
+            self._episode_length_task = None
 
             if self.writer:
                 self.writer.close()
+
+    def advance(self, timesteps: int) -> None:
+        if self._progress is not None and self._global_t_task is not None:
+            self._progress.advance(self._global_t_task, timesteps)
