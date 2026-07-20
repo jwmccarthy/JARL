@@ -1,4 +1,5 @@
 import numpy as np
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
 
 from collections import defaultdict
 from typing import Any, Generator, List, Mapping
@@ -9,6 +10,9 @@ class Logger:
         self.episode_data = defaultdict(list)
         self.step = 0
         self.writer = None
+        self._progress = None
+        self._updates_task = None
+
         if log_dir:
             from torch.utils.tensorboard import SummaryWriter
 
@@ -43,19 +47,37 @@ class Logger:
 
         self._write(info, self.step)
 
-    def progress(self, updates: int) -> Generator[int, None, None]:
-        try:
-            for update in range(updates):
-                yield update
+        if self._progress is not None and self._updates_task is not None:
+            self._progress.advance(self._updates_task)
 
-                print(
-                    f"\rUpdate {update + 1:,}/{updates:,} | "
-                    f"Global ticks {self.step:,}",
-                    end="",
-                    flush=True,
-                )
+    def progress(
+        self,
+        vector_steps: int,
+        environments_per_step: int,
+        learner_updates: int,
+    ) -> Generator[int, None, None]:
+        progress = Progress(
+            TextColumn("[bold]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("{task.completed:,.0f}/{task.total:,.0f}"),
+        )
+        global_t_task = progress.add_task(
+            "global_t",
+            total=vector_steps * environments_per_step,
+        )
+        updates_task = progress.add_task("updates", total=learner_updates)
+        self._progress = progress
+        self._updates_task = updates_task
+
+        try:
+            with progress:
+                for vector_step in range(vector_steps):
+                    yield vector_step
+                    progress.advance(global_t_task, environments_per_step)
         finally:
-            print()
+            self._progress = None
+            self._updates_task = None
 
             if self.writer:
                 self.writer.close()

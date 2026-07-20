@@ -25,9 +25,18 @@ class Trainer:
         if vector_steps < 1:
             raise ValueError("total_env_steps is smaller than one vector step")
 
+        learner_updates = self.schedule.expected_updates(
+            vector_steps,
+            self.runner.n_envs,
+            self.buffer,
+        )
         self.runner.reset()
 
-        for index in self.logger.progress(vector_steps):
+        for index in self.logger.progress(
+            vector_steps,
+            self.runner.n_envs,
+            learner_updates,
+        ):
             env_step = self.runner.step()
             self.clock.vector_steps += 1
             self.clock.env_steps += self.runner.n_envs
