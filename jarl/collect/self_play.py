@@ -266,12 +266,24 @@ class SelfPlayRunner:
         if not len(finished):
             return env_step.info
         learner = self.matchmaker.learner_mask[finished].cpu().tolist()
+        historical_matches = self.matchmaker.opponent_ids.view(
+            self.matchmaker.num_matches,
+            self.matchmaker.players_per_match,
+        ).ge(0).any(dim=-1)
+        historical = historical_matches[:, None].expand(
+            -1, self.matchmaker.players_per_match
+        ).reshape(-1)[finished].cpu().tolist()
         info = dict(env_step.info)
         for key in ("reward", "length"):
             values = info.get(key)
             if values is not None and len(values) == len(learner):
                 info[key] = [
                     value for value, keep in zip(values, learner) if keep
+                ]
+                info[f"historical_{key}"] = [
+                    value
+                    for value, active, past in zip(values, learner, historical)
+                    if active and past
                 ]
         return info
 

@@ -63,10 +63,10 @@ class PPOLoss:
         return LossOutput(
             loss,
             {
-                "policy_loss": policy_loss.item(),
-                "critic_loss": value_loss.item(),
-                "entropy": entropy.item(),
-                "approx_kl": approx_kl.item(),
+                "policy_loss": policy_loss,
+                "critic_loss": value_loss,
+                "entropy": entropy,
+                "approx_kl": approx_kl,
             },
         )
 

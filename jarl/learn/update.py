@@ -10,7 +10,7 @@ from jarl.transform.base import PrepareContext, apply_transforms
 @dataclass(frozen=True)
 class LossOutput:
     loss:    th.Tensor
-    metrics: dict[str, float]
+    metrics: dict[str, float | th.Tensor]
 
 
 class Update:
@@ -43,7 +43,7 @@ class Update:
 
         prepared_batch = apply_transforms(batch, self.transforms, context)
 
-        metric_totals: dict[str, float] = {}
+        metric_totals: dict[str, float | th.Tensor] = {}
         minibatch_count = 0
 
         for sample in self.sampler(prepared_batch):
@@ -60,6 +60,8 @@ class Update:
             self.optimizer_step(loss_output.loss)
 
             for metric_name, metric_value in loss_output.metrics.items():
+                if isinstance(metric_value, th.Tensor):
+                    metric_value = metric_value.detach()
                 metric_totals[metric_name] = (
                     metric_totals.get(metric_name, 0.0) + metric_value
                 )
@@ -75,7 +77,7 @@ class Update:
             after_update()
 
         metrics = {
-            metric_name: metric_value / minibatch_count
+            metric_name: float(metric_value / minibatch_count)
             for metric_name, metric_value in metric_totals.items()
         }
 

@@ -23,6 +23,7 @@ class Logger:
         self._progress = None
         self._metrics = None
         self._reward_task = None
+        self._historical_reward_task = None
         self._episode_length_task = None
         self._global_t_task = None
 
@@ -48,7 +49,7 @@ class Logger:
         new_info = dict(global_t=t)
 
         for key, values in self.episode_data.items():
-            if info[key]:
+            if info.get(key):
                 new_info |= {key: np.mean(values)}
 
         update = dict(Episode=new_info)
@@ -65,6 +66,11 @@ class Logger:
                 self._metrics.update(
                     self._episode_length_task,
                     value=f"{new_info['length']:,.1f}",
+                )
+            if "historical_reward" in new_info:
+                self._metrics.update(
+                    self._historical_reward_task,
+                    value=f"{new_info['historical_reward']:,.2f}",
                 )
 
     def update(self, info: Mapping[str, Any], step: int = None) -> None:
@@ -99,6 +105,11 @@ class Logger:
             total=None,
             value="-",
         )
+        historical_reward_task = metrics.add_task(
+            "historical_reward",
+            total=None,
+            value="-",
+        )
         episode_length_task = metrics.add_task(
             "episode_length",
             total=None,
@@ -108,6 +119,7 @@ class Logger:
         self._metrics = metrics
         self._global_t_task = global_t_task
         self._reward_task = reward_task
+        self._historical_reward_task = historical_reward_task
         self._episode_length_task = episode_length_task
 
         try:
@@ -118,6 +130,7 @@ class Logger:
             self._metrics = None
             self._global_t_task = None
             self._reward_task = None
+            self._historical_reward_task = None
             self._episode_length_task = None
 
             if self.writer:
