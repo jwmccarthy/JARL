@@ -146,7 +146,6 @@ class MultiCategoricalPolicy(Policy):
         if self.action_codec is not None:
             if self.action_codec.action_shape != self.action_shape:
                 raise ValueError("action codec shape does not match environment actions")
-            return self.action_codec.num_actions
         return sum(self.sizes)
 
     def initial_state(self, batch_size: int):
@@ -206,20 +205,7 @@ class MultiCategoricalPolicy(Policy):
         deterministic: bool = False,
     ) -> PolicyOutput:
         logits = self.foot(features)
-        if self.action_codec is not None:
-            distribution = self._joint_distribution(logits, observation)
-            index = (
-                distribution.logits.argmax(-1)
-                if deterministic
-                else distribution.sample()
-            )
-            action = self.action_codec.decode(index)
-            return PolicyOutput(
-                action=action,
-                log_prob=distribution.log_prob(index),
-            )
-
-        distributions = self._factorized_distributions(logits)
+        distributions = self._factorized_distributions(logits, observation)
         if deterministic:
             action = th.stack(
                 [distribution.logits.argmax(-1) for distribution in distributions],
@@ -240,39 +226,35 @@ class MultiCategoricalPolicy(Policy):
         action:      th.Tensor,
     ) -> Evaluation:
         logits = self.foot(features)
-        if self.action_codec is not None:
-            distribution = self._joint_distribution(logits, observation)
-            index = self.action_codec.encode(action)
-            return Evaluation(
-                log_prob=distribution.log_prob(index),
-                entropy=distribution.entropy(),
-            )
-        distributions = self._factorized_distributions(logits)
+        distributions = self._factorized_distributions(logits, observation)
         return Evaluation(
             log_prob=self._logprob(distributions, action),
             entropy=self._entropy(distributions),
         )
 
-    def _joint_distribution(
+    def _factorized_distributions(
         self,
         logits:      th.Tensor,
-        observation: th.Tensor,
-    ) -> Categorical:
+        observation: th.Tensor | None = None,
+    ) -> list[Distribution]:
+        split_logits = logits.split(self.sizes, dim=-1)
+        if self.action_codec is None:
+            return [Categorical(logits=value) for value in split_logits]
+        if observation is None:
+            raise ValueError("masked policy requires observations")
         mask = self.action_codec.mask(observation)
         if mask.shape != logits.shape or mask.dtype != th.bool:
             raise ValueError("action codec returned an invalid mask")
-        return Categorical(
-            logits=logits.masked_fill(~mask, th.finfo(logits.dtype).min)
-        )
-
-    def _factorized_distributions(
-        self, logits: th.Tensor
-    ) -> list[Distribution]:
-        return [Categorical(logits=value) for value in logits.split(self.sizes, -1)]
+        split_masks = mask.split(self.sizes, dim=-1)
+        return [
+            Categorical(
+                logits=value.masked_fill(~valid, th.finfo(value.dtype).min)
+            )
+            for value, valid in zip(split_logits, split_masks)
+        ]
 
     def dist(self, observation: th.Tensor) -> list[Distribution]:
-        logits = self.model(observation).split(self.sizes, dim=-1)
-        return [Categorical(logits=value) for value in logits]
+        return self._factorized_distributions(self.model(observation), observation)
 
     def action(self, observation: th.Tensor) -> th.Tensor:
         actions = th.stack(
