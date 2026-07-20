@@ -89,7 +89,7 @@ class Recurrent(nn.Module, ABC):
         reset = self._prepare_reset(reset, sequence, single_step)
         native_state = self._to_native(state)
 
-        if reset is None:
+        if reset is None or not reset.any().item():
             output, native_state = self.rnn(sequence, native_state)
         else:
             output, native_state = self._unroll(sequence, native_state, reset)
