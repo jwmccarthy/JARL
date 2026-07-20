@@ -4,6 +4,39 @@ from jarl.data.batch import TensorBatch
 from jarl.transform.base import PrepareContext
 
 
+def discounted_suffix_sum(
+    value: th.Tensor,
+    continues: th.Tensor,
+    discount: float,
+) -> th.Tensor:
+    if value.shape != continues.shape:
+        raise ValueError("value and continuation masks must have matching shapes")
+    if not 0.0 <= discount <= 1.0:
+        raise ValueError("discount must be between zero and one")
+    if discount == 0.0:
+        return value.clone()
+
+    time = len(value)
+    shape = (time,) + (1,) * (value.ndim - 1)
+    powers = th.pow(
+        th.as_tensor(discount, dtype=value.dtype, device=value.device),
+        th.arange(time, dtype=value.dtype, device=value.device),
+    ).view(shape)
+    weighted = value * powers
+    suffix = th.flip(th.cumsum(th.flip(weighted, dims=(0,)), dim=0), dims=(0,))
+
+    positions = th.arange(time, device=value.device).view(shape).expand_as(value)
+    boundaries = th.where(continues, time, positions)
+    boundaries[-1] = time - 1
+    segment_end = th.flip(
+        th.cummin(th.flip(boundaries, dims=(0,)), dim=0).values,
+        dims=(0,),
+    )
+    padded = th.cat((suffix, th.zeros_like(suffix[:1])), dim=0)
+    after_segment = padded.gather(0, segment_end + 1)
+    return (suffix - after_segment) / powers
+
+
 class GAE:
     def __init__(
         self,
@@ -28,14 +61,11 @@ class GAE:
             + self.gamma * batch["baseline_next_value"] * bootstrap
             - value
         )
-        advantage = th.zeros_like(delta)
-        carry = th.zeros_like(delta[-1])
-
-        for index in reversed(range(len(delta))):
-            carry = delta[index] + (
-                self.gamma * self.lambda_ * continues[index] * carry
-            )
-            advantage[index] = carry
+        advantage = discounted_suffix_sum(
+            delta,
+            continues.bool(),
+            self.gamma * self.lambda_,
+        )
 
         return batch.with_fields(
             advantage=advantage,
@@ -52,12 +82,7 @@ class DiscountedReturns:
     def __call__(self, batch: TensorBatch, context: PrepareContext) -> TensorBatch:
         reward = batch[self.reward_field]
         continues = ~(batch["terminated"] | batch["truncated"])
-        returns = th.zeros_like(reward)
-        carry = th.zeros_like(reward[-1])
-
-        for index in reversed(range(len(reward))):
-            carry = reward[index] + self.gamma * continues[index] * carry
-            returns[index] = carry
+        returns = discounted_suffix_sum(reward, continues, self.gamma)
 
         return batch.with_fields(returns=returns, advantage=returns)
 
