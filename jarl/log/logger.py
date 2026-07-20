@@ -1,18 +1,30 @@
 import numpy as np
 from contextlib import contextmanager
+from datetime import timedelta
 from rich.console import Group
 from rich.live import Live
 from rich.progress import (
     BarColumn,
     Progress,
+    ProgressColumn,
+    Task,
     TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
-    TimeRemainingColumn,
 )
+from rich.text import Text
 
 from collections import defaultdict, deque
 from typing import Any, Generator, List, Mapping
+
+
+class AverageTimeRemainingColumn(ProgressColumn):
+    def render(self, task: Task) -> Text:
+        if task.total is None or task.completed <= 0 or task.elapsed is None:
+            return Text("--:--:--", style="progress.remaining")
+        remaining = max(task.total - task.completed, 0.0)
+        seconds = round(task.elapsed * remaining / task.completed)
+        return Text(str(timedelta(seconds=seconds)), style="progress.remaining")
 
 
 class Logger:
@@ -88,7 +100,7 @@ class Logger:
             TextColumn("{task.completed:,.0f}/{task.total:,.0f}"),
             TimeElapsedColumn(),
             TextColumn("<"),
-            TimeRemainingColumn(),
+            AverageTimeRemainingColumn(),
             auto_refresh=False,
         )
         metrics = Progress(

@@ -20,9 +20,11 @@ class RolloutBuffer(TensorStorage):
         horizon: int,
         num_envs: int,
         device: str | th.device,
+        copy_on_finish: bool = True,
     ) -> None:
         super().__init__(horizon, num_envs, device)
         self.horizon = horizon
+        self.copy_on_finish = copy_on_finish
         self.position = 0
 
     @property
@@ -40,14 +42,15 @@ class RolloutBuffer(TensorStorage):
         if self.position == 0 or self._storage is None:
             raise RuntimeError("cannot finish an empty rollout")
 
-        return Rollout(
-            TensorBatch(
-                {
-                    key: value[: self.position].clone()
-                    for key, value in self._storage.items()
-                }
+        steps = {
+            key: (
+                value[: self.position].clone()
+                if self.copy_on_finish
+                else value[: self.position]
             )
-        )
+            for key, value in self._storage.items()
+        }
+        return Rollout(TensorBatch(steps))
 
     def clear(self) -> None:
         self.position = 0

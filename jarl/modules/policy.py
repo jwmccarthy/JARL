@@ -205,18 +205,24 @@ class MultiCategoricalPolicy(Policy):
         deterministic: bool = False,
     ) -> PolicyOutput:
         logits = self.foot(features)
-        distributions = self._factorized_distributions(logits, observation)
-        if deterministic:
-            action = th.stack(
-                [distribution.logits.argmax(-1) for distribution in distributions],
-                dim=-1,
+        distributions = self._grouped_distributions(logits, observation)
+        action = th.empty(
+            (*logits.shape[:-1], len(self.sizes)),
+            dtype=th.int64,
+            device=logits.device,
+        )
+        for indices, distribution in distributions:
+            selected = (
+                distribution.logits.argmax(-1)
+                if deterministic
+                else distribution.sample()
             )
-        else:
-            action = self._sample(distributions)
+            action[..., list(indices)] = selected
+        log_prob = self._grouped_logprob(distributions, action)
         action = action.reshape(*action.shape[:-1], *self.action_shape)
         return PolicyOutput(
             action=action,
-            log_prob=self._logprob(distributions, action),
+            log_prob=log_prob,
         )
 
     def evaluate_from_features(
@@ -226,10 +232,51 @@ class MultiCategoricalPolicy(Policy):
         action:      th.Tensor,
     ) -> Evaluation:
         logits = self.foot(features)
-        distributions = self._factorized_distributions(logits, observation)
+        distributions = self._grouped_distributions(logits, observation)
         return Evaluation(
-            log_prob=self._logprob(distributions, action),
-            entropy=self._entropy(distributions),
+            log_prob=self._grouped_logprob(distributions, action),
+            entropy=sum(
+                distribution.entropy().sum(dim=-1)
+                for _, distribution in distributions
+            ),
+        )
+
+    def _grouped_distributions(
+        self,
+        logits:      th.Tensor,
+        observation: th.Tensor,
+    ) -> list[tuple[tuple[int, ...], Categorical]]:
+        split_logits = logits.split(self.sizes, dim=-1)
+        split_masks = None
+        if self.action_codec is not None:
+            mask = self.action_codec.mask(observation)
+            if mask.shape != logits.shape or mask.dtype != th.bool:
+                raise ValueError("action codec returned an invalid mask")
+            split_masks = mask.split(self.sizes, dim=-1)
+
+        distributions = []
+        for size in dict.fromkeys(self.sizes):
+            indices = tuple(
+                index for index, value in enumerate(self.sizes) if value == size
+            )
+            grouped = th.stack([split_logits[index] for index in indices], dim=-2)
+            if split_masks is not None:
+                valid = th.stack(
+                    [split_masks[index] for index in indices], dim=-2
+                )
+                grouped = grouped.masked_fill(~valid, th.finfo(grouped.dtype).min)
+            distributions.append((indices, Categorical(logits=grouped)))
+        return distributions
+
+    def _grouped_logprob(
+        self,
+        distributions: list[tuple[tuple[int, ...], Categorical]],
+        action:        th.Tensor,
+    ) -> th.Tensor:
+        action = action.reshape(*action.shape[: -len(self.action_shape)], -1)
+        return sum(
+            distribution.log_prob(action[..., list(indices)]).sum(dim=-1)
+            for indices, distribution in distributions
         )
 
     def _factorized_distributions(

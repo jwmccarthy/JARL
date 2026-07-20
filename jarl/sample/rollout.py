@@ -52,6 +52,7 @@ class RecurrentRolloutMinibatches:
         sequence_length: int,
         sequences_per_batch: int,
         epochs: int = 1,
+        fields: tuple[str, ...] | None = None,
     ) -> None:
         if sequence_length < 1 or sequences_per_batch < 1 or epochs < 1:
             raise ValueError("sequence settings must be positive")
@@ -59,10 +60,22 @@ class RecurrentRolloutMinibatches:
         self.sequence_length = sequence_length
         self.sequences_per_batch = sequences_per_batch
         self.epochs = epochs
+        self.fields = fields
 
     def __call__(self, data: TensorBatch):
         if "policy_state" not in data:
             raise ValueError("recurrent sampling requires policy_state")
+        if self.fields is not None:
+            required = list(self.fields)
+            for key in (
+                "policy_state",
+                "terminated",
+                "truncated",
+                "learner_mask",
+            ):
+                if key in data and key not in required:
+                    required.append(key)
+            data = data.select(*required)
 
         time, num_envs = data.shape[:2]
 
@@ -79,9 +92,14 @@ class RecurrentRolloutMinibatches:
             eligible = learner_mask.any(dim=1).nonzero(as_tuple=True)[0]
         if not len(eligible):
             raise RuntimeError("rollout contains no learner sequences")
+        done = sequences["terminated"] | sequences["truncated"]
+        has_reset = done[:, :-1].any(dim=1)
+        clean = eligible[~has_reset[eligible]]
+        resetting = eligible[has_reset[eligible]]
 
         for _ in range(self.epochs):
-            yield from self._sample_epoch(sequences, eligible)
+            yield from self._sample_epoch(sequences, clean)
+            yield from self._sample_epoch(sequences, resetting)
 
     def _build_sequences(
         self,
@@ -107,6 +125,8 @@ class RecurrentRolloutMinibatches:
         sequences: dict[str, th.Tensor],
         eligible: th.Tensor,
     ):
+        if not len(eligible):
+            return
         device = next(iter(sequences.values())).device
         indices = eligible[th.randperm(len(eligible), device=device)]
 

@@ -21,12 +21,14 @@ class Update:
         loss,
         optimizer_step,
         section: str = "Update",
+        autocast_dtype: th.dtype | None = None,
     ) -> None:
         self.transforms = tuple(transforms)
         self.sampler = sampler
         self.loss = loss
         self.optimizer_step = optimizer_step
         self.section = section
+        self.autocast_dtype = autocast_dtype
 
     def run(self, experience):
         return experience, self.update(experience)
@@ -47,7 +49,13 @@ class Update:
         minibatch_count = 0
 
         for sample in self.sampler(prepared_batch):
-            loss_output = self.loss(sample)
+            sample_data = sample.steps if hasattr(sample, "steps") else sample
+            with th.autocast(
+                device_type=sample_data.device.type,
+                dtype=self.autocast_dtype,
+                enabled=self.autocast_dtype is not None,
+            ):
+                loss_output = self.loss(sample)
 
             if isinstance(loss_output, th.Tensor):
                 loss_output = LossOutput(
