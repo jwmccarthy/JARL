@@ -100,8 +100,10 @@ class ReplayBuffer(TensorStorage):
         }
 
         data["replay_time"] = physical.to(self.sample_device)
-        data["replay_environment"] = environment.to(self.sample_device).expand(
-            length, -1
+        data["replay_environment"] = (
+            environment
+            .to(self.sample_device)
+            .expand(length, -1)
         )
 
         return TensorBatch(data)

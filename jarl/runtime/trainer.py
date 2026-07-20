@@ -20,38 +20,38 @@ class Trainer:
         self.checkpoint = checkpoint
         self.clock = Clock()
 
-    def run(self, total_env_steps: int):
-        vector_steps = total_env_steps // self.runner.n_envs
-        if vector_steps < 1:
-            raise ValueError("total_env_steps is smaller than one vector step")
-
-        learner_updates = self.schedule.expected_updates(
-            vector_steps,
-            self.runner.n_envs,
-            self.buffer,
-        )
+    def run(self, total_timesteps: int):
+        if total_timesteps < 1:
+            raise ValueError("total_timesteps must be positive")
         self.runner.reset()
+        if total_timesteps < self.runner.timestep_count:
+            raise ValueError("total_timesteps is smaller than one vector step")
 
-        for index in self.logger.progress(
-            vector_steps,
-            self.runner.n_envs,
-            learner_updates,
-        ):
-            env_step = self.runner.step()
-            self.clock.vector_steps += 1
-            self.clock.env_steps += self.runner.n_envs
-            self.clock.episodes += int(env_step.done.sum())
-            self.logger.episode(self.clock.env_steps, env_step.info)
-
-            if self.schedule.ready(self.buffer, self.clock):
-                self._update()
-            elif index == vector_steps - 1 and self.schedule.pending(self.buffer):
-                self._update()
-
-            if self.checkpoint and self.checkpoint.ready(self.clock.env_steps):
-                self.checkpoint.run()
+        with self.logger.progress(total_timesteps):
+            while self.clock.env_steps < total_timesteps:
+                self._step(total_timesteps)
 
         return self.runner.policy
+
+    def _step(self, total_timesteps: int) -> None:
+        env_step = self.runner.step()
+        timesteps = self.runner.timestep_count
+        self.clock.vector_steps += 1
+        self.clock.env_steps += timesteps
+        self.clock.episodes += int(env_step.done.sum())
+        self.logger.advance(timesteps)
+        self.logger.episode(self.clock.env_steps, env_step.info)
+
+        if self.schedule.ready(self.buffer, self.clock):
+            self._update()
+        elif (
+            self.clock.env_steps >= total_timesteps
+            and self.schedule.pending(self.buffer)
+        ):
+            self._update()
+
+        if self.checkpoint and self.checkpoint.ready(self.clock.env_steps):
+            self.checkpoint.run()
 
     def _update(self) -> None:
         data = self.schedule.acquire(self.buffer)
@@ -61,3 +61,6 @@ class Trainer:
         self.logger.update(metrics, step=self.clock.env_steps)
 
         self.schedule.after_update(self.buffer)
+        after_update = getattr(self.runner, "after_update", None)
+        if after_update is not None:
+            after_update(self.clock.env_steps)

@@ -18,9 +18,11 @@ class RolloutMinibatches:
             raise ValueError("rollout data must be [time, environment, ...]")
 
         flat = data.flatten(0, 1)
-
-        if self.batch_size > len(flat):
-            raise ValueError("batch size exceeds rollout size")
+        learner_mask = flat.get("learner_mask")
+        if learner_mask is not None:
+            flat = flat[learner_mask.bool()]
+            if not len(flat):
+                raise RuntimeError("rollout contains no learner transitions")
 
         for _ in range(self.epochs):
             yield from self._sample_epoch(flat)
@@ -28,8 +30,9 @@ class RolloutMinibatches:
     def _sample_epoch(self, data: TensorBatch):
         indices = th.randperm(len(data), device=data.device)
 
-        for left in range(0, len(data), self.batch_size):
-            selected = indices[left : left + self.batch_size]
+        batch_size = min(self.batch_size, len(data))
+        for left in range(0, len(data), batch_size):
+            selected = indices[left : left + batch_size]
 
             if len(selected):
                 yield data[selected]
@@ -37,10 +40,10 @@ class RolloutMinibatches:
 
 @dataclass(frozen=True)
 class SequenceBatch:
-    steps:         TensorBatch
+    steps: TensorBatch
     initial_state: th.Tensor
-    reset:         th.Tensor
-    valid:         th.Tensor
+    reset: th.Tensor
+    valid: th.Tensor
 
 
 class RecurrentRolloutMinibatches:
@@ -63,19 +66,22 @@ class RecurrentRolloutMinibatches:
 
         time, num_envs = data.shape[:2]
 
-        if time % self.sequence_length:
-            raise ValueError("rollout time must be divisible by sequence length")
-
         chunks = time // self.sequence_length
-        sequence_count = chunks * num_envs
-
-        if self.sequences_per_batch > sequence_count:
-            raise ValueError("batch requests more sequences than the rollout")
-
+        if not chunks:
+            raise ValueError("rollout is shorter than one recurrent sequence")
+        if time % self.sequence_length:
+            data = data[: chunks * self.sequence_length]
         sequences = self._build_sequences(data, chunks, num_envs)
+        learner_mask = sequences.get("learner_mask")
+        if learner_mask is None:
+            eligible = th.arange(chunks * num_envs, device=data.device)
+        else:
+            eligible = learner_mask.any(dim=1).nonzero(as_tuple=True)[0]
+        if not len(eligible):
+            raise RuntimeError("rollout contains no learner sequences")
 
         for _ in range(self.epochs):
-            yield from self._sample_epoch(sequences, sequence_count)
+            yield from self._sample_epoch(sequences, eligible)
 
     def _build_sequences(
         self,
@@ -99,15 +105,14 @@ class RecurrentRolloutMinibatches:
     def _sample_epoch(
         self,
         sequences: dict[str, th.Tensor],
-        sequence_count: int,
+        eligible: th.Tensor,
     ):
         device = next(iter(sequences.values())).device
-        indices = th.randperm(sequence_count, device=device)
+        indices = eligible[th.randperm(len(eligible), device=device)]
 
-        for left in range(0, sequence_count, self.sequences_per_batch):
+        for left in range(0, len(indices), self.sequences_per_batch):
             selected = indices[left : left + self.sequences_per_batch]
-
-            if len(selected) == self.sequences_per_batch:
+            if len(selected):
                 yield self._build_batch(sequences, selected)
 
     @staticmethod
@@ -126,10 +131,13 @@ class RecurrentRolloutMinibatches:
         done = steps["terminated"] | steps["truncated"]
         reset = th.zeros_like(done)
         reset[1:] = done[:-1]
+        valid = steps.get("learner_mask")
+        if valid is None:
+            valid = th.ones_like(done)
 
         return SequenceBatch(
             steps=steps,
             initial_state=state,
             reset=reset,
-            valid=th.ones_like(done),
+            valid=valid.bool(),
         )

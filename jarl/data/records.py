@@ -9,6 +9,7 @@ class PolicyOutput:
     action:     th.Tensor
     next_state: th.Tensor | None = None
     log_prob:   th.Tensor | None = None
+    extras:     dict[str, th.Tensor] = field(default_factory=dict)
 
 
 @dataclass
@@ -28,6 +29,7 @@ class EnvStep:
     terminated:  Any
     truncated:   Any
     info:        dict[str, Any] = field(default_factory=dict)
+    bootstrap:   Any = None
 
     @property
     def done(self):

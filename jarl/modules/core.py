@@ -26,8 +26,9 @@ class MLP(nn.Module):
         self.func = func            # activation function
         self.init_func = init_func  # weight init function
         self.out_init_func = out_init_func
+        self.built = False
 
-    def build(self, in_dim: int, out_dim: int) -> Self:
+    def build(self, in_dim: int, out_dim: int | None = None) -> Self:
         self.model = nn.Sequential()
 
         # dims define hidden layers
@@ -36,11 +37,15 @@ class MLP(nn.Module):
             self.model.extend([layer, self.func()])
             in_dim = next_dim
 
-        # output linear layer
-        output = nn.Linear(in_dim, out_dim)
-        if self.out_init_func:
-            output = self.out_init_func(output)
-        self.model.append(output)
+        if out_dim is not None:
+            output = nn.Linear(in_dim, out_dim)
+            if self.out_init_func:
+                output = self.out_init_func(output)
+            self.model.append(output)
+            in_dim = out_dim
+
+        self.feats = in_dim
+        self.built = True
 
         return self
 

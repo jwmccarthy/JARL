@@ -3,13 +3,7 @@ import numpy as np
 import torch as th
 from torch import Tensor
 
-from gymnasium.spaces import (
-    Space,
-    Box,
-    Discrete,
-    MultiDiscrete,
-    MultiBinary
-)
+from gymnasium.spaces import Space, Box, Discrete, MultiDiscrete, MultiBinary
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -24,8 +18,8 @@ class TensorSpace(TensorSpec, ABC):
 
     space: Space
     shape: tuple[int, ...] = field(init=False)
-    dtype: th.dtype        = field(init=False)
-    stype: np.dtype        = field(init=False)
+    dtype: th.dtype = field(init=False)
+    stype: np.dtype = field(init=False)
 
     def __post_init__(self) -> None:
         self.shape = self.space.shape
@@ -35,27 +29,25 @@ class TensorSpace(TensorSpec, ABC):
     def contains(self, x: Tensor) -> bool:
         np_x = x.detach().cpu().numpy()
         return self.space.contains(np_x)
-    
+
     def sample(self) -> Tensor:
         x = self.space.sample()
         return self(x)
-    
-    @property
-    @abstractmethod
-    def flat_dim(self) -> int:
-        ...
 
     @property
     @abstractmethod
-    def numel(self) -> int:
-        ...
+    def flat_dim(self) -> int: ...
+
+    @property
+    @abstractmethod
+    def numel(self) -> int: ...
 
 
 @dataclass
 class BoxSpace(TensorSpace):
     """Tensor spec for Box gym space"""
 
-    _low:  Tensor = field(init=False)
+    _low: Tensor = field(init=False)
     _high: Tensor = field(init=False)
 
     def __post_init__(self) -> None:
@@ -66,19 +58,19 @@ class BoxSpace(TensorSpace):
     @property
     def low(self) -> Tensor:
         return self._low.to(self.device)
-    
+
     @property
     def high(self) -> Tensor:
         return self._high.to(self.device)
-    
+
     @property
     def flat_dim(self) -> int:
         return int(np.prod(self.shape))
-    
+
     @property
     def numel(self) -> int:
         return self.shape[0]
-    
+
 
 @dataclass
 class DiscreteSpace(TensorSpace):
@@ -89,15 +81,15 @@ class DiscreteSpace(TensorSpace):
     def __post_init__(self) -> None:
         super().__post_init__()
         self.n = self.space.n
-    
+
     @property
     def flat_dim(self) -> int:
         return self.n
-    
+
     @property
     def numel(self) -> int:
         return 1
-    
+
 
 @dataclass
 class MultiDiscreteSpace(TensorSpace):
@@ -112,15 +104,15 @@ class MultiDiscreteSpace(TensorSpace):
     @property
     def nvec(self) -> Tensor:
         return self._nvec.to(self.device)
-    
+
     @property
     def flat_dim(self) -> int:
         return int(self.nvec.sum().item())
-    
+
     @property
     def numel(self) -> int:
         return self.nvec.numel()
-    
+
 
 @dataclass
 class MultiBinarySpace(TensorSpace):
@@ -131,7 +123,7 @@ class MultiBinarySpace(TensorSpace):
     def __post_init__(self) -> None:
         super().__post_init__()
         self._n = th.as_tensor(self.space.n, dtype=th.int32)
-    
+
     @property
     def n(self) -> Tensor:
         return self._n.to(self.device)
@@ -139,23 +131,22 @@ class MultiBinarySpace(TensorSpace):
     @property
     def flat_dim(self) -> int:
         return int(self._n.prod().item())
-    
+
     @property
     def numel(self) -> int:
         return len(self._n)
-    
+
 
 @dataclass
 class ConcatSpace(TensorSpec):
     space: TensorSpace
     count: int
     shape: tuple[int, ...] = field(init=False)
-    dtype: th.dtype        = field(init=False)
-    stype: np.dtype        = field(init=False)
+    dtype: th.dtype = field(init=False)
+    stype: np.dtype = field(init=False)
 
     def __post_init__(self) -> None:
-        self.shape = (self.count * self.space.shape[0],) \
-                   + (*self.space.shape[1:],)
+        self.shape = (self.count * self.space.shape[0],) + (*self.space.shape[1:],)
         self.stype = self.space.stype
         self.dtype = self.space.dtype
 
@@ -166,14 +157,14 @@ class ConcatSpace(TensorSpec):
 
     def contains(self, x: Tensor) -> bool:
         return all(self.space.contains(y) for y in x)
-    
+
     def sample(self) -> Tensor:
         return th.cat([self.space.sample() for _ in range(self.count)])
 
     @property
     def flat_dim(self) -> int:
         return self.space.flat_dim * self.count
-    
+
     @property
     def numel(self) -> int:
         return self.space.numel * self.count
@@ -190,3 +181,17 @@ def torch_space(space: Space, device: Device = "cpu") -> TensorSpace:
     if isinstance(space, MultiBinary):
         return MultiBinarySpace(space, device=device)
     raise TypeError(f"Unsupported space type: {type(space)}")
+
+
+def observation_space(env) -> TensorSpace:
+    if hasattr(env, "obs_space"):
+        return env.obs_space
+    return torch_space(
+        env.single_observation_space, device=getattr(env, "device", "cpu")
+    )
+
+
+def action_space(env) -> TensorSpace:
+    if hasattr(env, "act_space"):
+        return env.act_space
+    return torch_space(env.single_action_space, device=getattr(env, "device", "cpu"))
