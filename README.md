@@ -103,6 +103,12 @@ Snapshots are retained on CPU in a bounded pool and selected opponents are
 cached on the execution device. Match assignments persist for a complete
 episode and are updated after same-step autoreset transitions have been stored.
 
+`TrueSkillEvaluator` schedules evaluation by learner timestep, plays the
+current actor against snapshot-pool opponents from both team assignments, logs
+ratings through JARL's logger, and persists rating state. It accepts an
+environment factory, match dimensions, and maximum vector steps, so the
+self-play framework remains independent of a specific environment.
+
 `TeamSpirit` blends each individual reward with the mean reward of its team
 before return estimation:
 

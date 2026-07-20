@@ -7,6 +7,7 @@ from jarl.collect.capture import (
 )
 from jarl.collect.runner import Runner
 from jarl.collect.self_play import SelfPlayMatchmaker, SelfPlayRunner, SnapshotPool
+from jarl.collect.evaluate import TrueSkillEvaluator
 
 __all__ = [
     "CaptureContext",
@@ -16,6 +17,7 @@ __all__ = [
     "SelfPlayMatchmaker",
     "SelfPlayRunner",
     "SnapshotPool",
+    "TrueSkillEvaluator",
     "ValueCapture",
     "build_record",
 ]
