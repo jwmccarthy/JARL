@@ -147,7 +147,7 @@ losses.
 
 The recurrent sampler can prune unused fields and separates reset-free
 sequences for fused cuDNN execution. On-policy rollout buffers can expose
-zero-copy views during updates, and `Update` supports optional autocast.
+zero-copy views during updates.
 
 An environment-provided joint action codec can be attached to the actor. JARL
 masks invalid joint logits before sampling and applies the same mask when

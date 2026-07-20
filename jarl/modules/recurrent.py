@@ -126,10 +126,8 @@ class Recurrent(nn.Module, ABC):
             raise ValueError(
                 f"state has shape {tuple(state.shape)}, expected {expected}"
             )
-        if state.device != sequence.device:
-            raise ValueError("state must match input device")
-        if state.dtype != sequence.dtype:
-            state = state.to(dtype=sequence.dtype)
+        if state.device != sequence.device or state.dtype != sequence.dtype:
+            raise ValueError("state must match input device and dtype")
 
         return state
 
