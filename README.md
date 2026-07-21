@@ -1,160 +1,75 @@
-# JARL (WIP)
+# JARL
 
-JARL is under active development and supports implementing a wide variety of reinforcement learning algorithms.
+JARL provides PyTorch components for reinforcement learning.
 
-JARL is written to be highly modular and allow for rapid prototyping of different RL algorithms.
-Eventually, many existing algorithms will be implemented by default within JARL. Their core components will therefore be available to rearrange and refactor into more novel approaches.
+## Requirements
 
-## Installation
+JARL requires Python 3.11 or newer.
 
-Install the project and its locked dependencies with [uv](https://docs.astral.sh/uv/):
+Install the package with:
 
 ```bash
 uv sync
 ```
 
-TensorBoard logging is available as an optional extra:
+Install TensorBoard support with:
 
 ```bash
 uv sync --extra logging
 ```
 
-## Runtime Structure
+Install example dependencies with:
 
-### Environment contract
+```bash
+uv sync --extra examples
+```
 
-JARL environments expose `n_envs`, return batched observations directly from
-`reset()`, and return the Gymnasium five-tuple from `step()`. `Runner` converts
-each tuple into an `EnvStep` for collection and learning.
+## Examples
 
-`total_timesteps` and `global_t` count learner-controlled transitions. Standard
-runners count every environment actor; self-play runners exclude historical
-opponent actors.
-
-Same-step autoreset is supported. Environments should provide terminal
-observations as `info["final_obs"]` with an `info["_final_obs"]` mask. JARL
-uses those observations for truncated-transition bootstrapping while advancing
-the policy with the returned reset observations. If a truncated environment
-does not expose its terminal observation, JARL conservatively disables
-bootstrapping rather than using the next episode's reset state.
-
-Training is split into six stages:
-
-1. **Collect**
-
-   `Runner` uses the policy to step the environment. Capture components can
-   also record values, action log probabilities, and recurrent state.
-
-2. **Store**
-
-   `RolloutBuffer` keeps ordered on-policy data until it is consumed.
-   `ReplayBuffer` keeps off-policy data for reuse.
-
-3. **Sample**
-
-   Samplers turn stored data into flat or recurrent minibatches.
-
-4. **Prepare**
-
-   Transforms calculate the rewards, advantages, returns, and targets needed
-   for training.
-
-5. **Optimize**
-
-   Learners run the optimizer steps that update each model.
-
-6. **Maintain**
-
-   Target networks and learning-rate schedules are updated after training.
-   `Algorithm` runs its update and transform stages in the order they are listed.
-
-## PPO Example
-
-The complete [LunarLander example](examples/ppo.py) builds the environment,
-policy, value function, PPO update, and training loop from JARL components. Run
-it with:
+Run recurrent PPO on LunarLander with:
 
 ```bash
 uv run --extra examples python examples/ppo.py
 ```
 
-Use `--total-timesteps` to set the training budget or `--checkpoint PATH` to save the
-trained policy.
-
-## GAIfO Example
-
-The [GAIfO example](examples/gaifo.py) collects expert LunarLander transitions
-with Gymnasium's heuristic controller, trains a transition discriminator, and
-uses its rewards for PPO:
+Run GAIfO on LunarLander with:
 
 ```bash
 uv run --extra examples python examples/gaifo.py
 ```
 
-## Self-Play
+Both commands accept `--help`, `--total-timesteps`, `--num-envs`, `--rollout-steps`, `--device`, and `--checkpoint`.
 
-JARL provides `SnapshotPool`, `SelfPlayMatchmaker`, and `SelfPlayRunner` for
-two-team self-play. Matchmaking can divide vectorized matches between the
-current policy and immutable historical snapshots. Current-v-current matches
-train every actor; current-v-historical matches randomize the learner's team
-and exclude historical-policy transitions from optimization.
+## Environment Interface
 
-Snapshots are retained on CPU in a bounded pool and selected opponents are
-cached on the execution device. Match assignments persist for a complete
-episode and are updated after same-step autoreset transitions have been stored.
+An environment exposes `n_envs`. `reset()` returns a batched observation. `step()` returns observation, reward, terminated, truncated, and info.
 
-`TrueSkillEvaluator` schedules evaluation by learner timestep, plays the
-current actor against snapshot-pool opponents from both team assignments, logs
-ratings through JARL's logger, and persists rating state. It accepts an
-environment factory, match dimensions, and maximum vector steps, so the
-self-play framework remains independent of a specific environment.
+JARL supports same step reset behavior. A terminal observation can be stored in `info["final_obs"]` or `info["final_observation"]`. The related mask can be stored in `info["_final_obs"]` or `info["_final_observation"]`.
 
-`TeamSpirit` blends each individual reward with the mean reward of its team
-before return estimation:
+When a truncated transition has no terminal observation, JARL does not bootstrap from the returned reset observation.
 
-```text
-reward = (1 - spirit) * individual + spirit * team_mean
-```
+## Data And Reset Sampling
 
-A value of zero preserves individual rewards; one uses fully shared team
-rewards.
+`TensorBatch` stores named tensors with a shared leading shape. `TensorDataset` stores a nonempty batch on one device.
 
-`ActorCritic` composes existing actor and critic modules. Shared state is
-enabled by passing the same head and body instances to both modules:
+`DatasetResetSampler` samples one dataset row for each true value in a reset mask. It uses its own seeded generator and returns `None` for an empty mask. Optional reset transforms receive the sample and a `ResetContext`.
 
 ```python
-head = FlattenEncoder()
-body = GRU(hidden_size=256)
-
-actor = MultiCategoricalPolicy(
-    head=head,
-    body=body,
-    foot=MLP(dims=[]),
-    action_codec=environment.action_codec,
-)
-critic = ValueFunction(
-    head=head,
-    body=body,
-    foot=MLP(dims=[]),
-)
-model = ActorCritic(
-    actor=actor,
-    critic=critic,
-    shared_state=True,
-).build(environment)
+dataset = TensorDataset(TensorBatch({"state": states}))
+sampler = DatasetResetSampler(dataset, seed=0)
+sample = sampler(reset_mask)
 ```
 
-The shared head/body executes once per request and each foot produces its own
-output. Recurrence is a property of the selected body rather than the
-actor-critic container. Use recurrent bodies with `RecurrentStateCapture` and
-`RecurrentRolloutMinibatches`; self-play sequence batches retain historical
-transitions for correct hidden-state unrolling while masking them out of PPO
-losses.
+## Components
 
-The recurrent sampler can prune unused fields and separates reset-free
-sequences for fused cuDNN execution. On-policy rollout buffers can expose
-zero-copy views during updates.
+`Runner` collects transitions. Capture objects select extra policy data. `RolloutBuffer` stores ordered rollout data. `ReplayBuffer` stores reusable transitions and windows.
 
-An environment-provided joint action codec can be attached to the actor. JARL
-masks invalid joint logits before sampling and applies the same mask when
-reevaluating stored actions for PPO.
+Transforms include GAE, discounted returns, n step targets, discriminator rewards, team rewards, and value materialization. Flat and recurrent samplers create update batches. `Algorithm` runs update stages in order. `Trainer` runs collection and update schedules.
+
+Model components include encoders, MLP, CNN, GRU, LSTM, categorical policies, value functions, and `ActorCritic`. Recurrent `ActorCritic` uses shared actor and critic head and body objects.
+
+## Self Play
+
+`SnapshotPool` stores policy snapshots on CPU. `SelfPlayMatchmaker` assigns current and saved policies to vectorized matches. `SelfPlayRunner` excludes saved policy transitions from optimization through its learner mask.
+
+A match is reassigned when an actor in that match finishes. `TeamSpirit` mixes individual reward with team mean reward. `TrueSkillEvaluator` plays both team assignments and writes ratings to `trueskill_ratings.json`.
