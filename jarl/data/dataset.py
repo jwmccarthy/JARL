@@ -38,6 +38,21 @@ class TensorDataset:
             indices = indices.reshape(1)
         return self.data[indices]
 
+    def sample(
+        self,
+        count:     int,
+        generator: th.Generator | None = None,
+    ) -> TensorBatch:
+        if count < 1:
+            raise ValueError("sample count must be positive")
+        indices = th.randint(
+            len(self),
+            (count,),
+            device=self.device,
+            generator=generator,
+        )
+        return self[indices]
+
     def to(
         self,
         device:       str | th.device,

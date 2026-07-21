@@ -64,10 +64,12 @@ class DiscriminatorReward:
         discriminator,
         output_field: str = "imitation_reward",
         from_logits: bool = True,
+        mask_terminal: bool = False,
     ) -> None:
         self.discriminator = discriminator
         self.output_field = output_field
         self.from_logits = from_logits
+        self.mask_terminal = mask_terminal
 
     @th.no_grad()
     def __call__(
@@ -77,4 +79,7 @@ class DiscriminatorReward:
             (batch["observation"], batch["next_obs"])
         )
         reward = F.softplus(-score) if self.from_logits else -score.clamp_min(1e-8).log()
+        if self.mask_terminal:
+            terminal = batch["terminated"].bool() | batch["truncated"].bool()
+            reward = reward.masked_fill(terminal, 0.0)
         return batch.with_fields(**{self.output_field: reward})

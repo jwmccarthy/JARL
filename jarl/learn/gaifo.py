@@ -7,12 +7,22 @@ from jarl.learn.update import LossOutput
 
 class GAIFOMinibatches:
     def __init__(self, expert_buffer, batch_size: int, epochs: int = 1) -> None:
+        if batch_size < 1 or epochs < 1:
+            raise ValueError("batch size and epochs must be positive")
         self.expert_buffer = expert_buffer
         self.batch_size = batch_size
         self.epochs = epochs
 
     def __call__(self, rollout: TensorBatch):
-        agent_transitions = rollout.select("observation", "next_obs").flatten(0, 1)
+        flattened = rollout.flatten(0, 1)
+        valid = th.ones(len(flattened), dtype=th.bool, device=flattened.device)
+        if "learner_mask" in flattened:
+            valid &= flattened["learner_mask"].bool()
+        if "terminated" in flattened:
+            valid &= ~flattened["terminated"].bool()
+        if "truncated" in flattened:
+            valid &= ~flattened["truncated"].bool()
+        agent_transitions = flattened.select("observation", "next_obs")[valid]
 
         for _ in range(self.epochs):
             yield from self._sample_epoch(agent_transitions)
