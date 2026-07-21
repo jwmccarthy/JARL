@@ -65,11 +65,17 @@ class DiscriminatorReward:
         output_field: str = "imitation_reward",
         from_logits: bool = True,
         mask_terminal: bool = False,
+        reward_type: str = "softplus",
     ) -> None:
+        if reward_type not in ("softplus", "negative_logit"):
+            raise ValueError("unknown discriminator reward type")
+        if reward_type == "negative_logit" and not from_logits:
+            raise ValueError("negative logit reward requires logits")
         self.discriminator = discriminator
         self.output_field = output_field
         self.from_logits = from_logits
         self.mask_terminal = mask_terminal
+        self.reward_type = reward_type
 
     @th.no_grad()
     def __call__(
@@ -78,7 +84,14 @@ class DiscriminatorReward:
         score = self.discriminator(
             (batch["observation"], batch["next_obs"])
         )
-        reward = F.softplus(-score) if self.from_logits else -score.clamp_min(1e-8).log()
+        if self.reward_type == "negative_logit":
+            reward = -score
+        else:
+            reward = (
+                F.softplus(-score)
+                if self.from_logits
+                else -score.clamp_min(1e-8).log()
+            )
         if self.mask_terminal:
             terminal = batch["terminated"].bool() | batch["truncated"].bool()
             reward = reward.masked_fill(terminal, 0.0)
