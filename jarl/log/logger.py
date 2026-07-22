@@ -36,7 +36,6 @@ class Logger:
         self._metrics = None
         self._reward_task = None
         self._historical_reward_task = None
-        self._imitation_reward_task = None
         self._episode_length_task = None
         self._global_t_task = None
 
@@ -91,12 +90,6 @@ class Logger:
             self.step = step
 
         self._write(info, self.step)
-        imitation_reward = info.get("GAIfO", {}).get("imitation_reward")
-        if imitation_reward is not None and self._metrics is not None:
-            self._metrics.update(
-                self._imitation_reward_task,
-                value=f"{imitation_reward:,.4f}",
-            )
 
     @contextmanager
     def progress(self, total_timesteps: int) -> Generator[None, None, None]:
@@ -129,11 +122,6 @@ class Logger:
             total=None,
             value="-",
         )
-        imitation_reward_task = metrics.add_task(
-            "imitation_reward",
-            total=None,
-            value="-",
-        )
         episode_length_task = metrics.add_task(
             "episode_length",
             total=None,
@@ -144,7 +132,6 @@ class Logger:
         self._global_t_task = global_t_task
         self._reward_task = reward_task
         self._historical_reward_task = historical_reward_task
-        self._imitation_reward_task = imitation_reward_task
         self._episode_length_task = episode_length_task
 
         try:
@@ -156,7 +143,6 @@ class Logger:
             self._global_t_task = None
             self._reward_task = None
             self._historical_reward_task = None
-            self._imitation_reward_task = None
             self._episode_length_task = None
 
             if self.writer:

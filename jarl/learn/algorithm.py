@@ -17,15 +17,8 @@ class Algorithm:
 
 
 class TransformRollout:
-    def __init__(
-        self,
-        *transforms,
-        report_fields: tuple[str, ...] = (),
-        section:       str = "Transform",
-    ) -> None:
+    def __init__(self, *transforms) -> None:
         self.transforms = transforms
-        self.report_fields = report_fields
-        self.section = section
 
     def run(self, rollout):
         if not isinstance(rollout, Rollout):
@@ -36,14 +29,4 @@ class TransformRollout:
             self.transforms,
             PrepareContext(rollout),
         )
-        metrics = {}
-        if self.report_fields:
-            valid = steps.get("learner_mask")
-            values = {}
-            for field in self.report_fields:
-                value = steps[field]
-                if valid is not None:
-                    value = value[valid.bool()]
-                values[field] = value.mean().item()
-            metrics[self.section] = values
-        return rollout.with_steps(steps), metrics
+        return rollout.with_steps(steps), {}
