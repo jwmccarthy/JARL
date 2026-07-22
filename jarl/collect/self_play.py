@@ -14,19 +14,27 @@ class SnapshotPool:
     def __init__(
         self,
         policy,
-        max_size:          int,
-        snapshot_interval: int,
-        active_cache_size: int = 4,
-        seed:              int = 0,
-        checkpoint_dir:    Path | None = None,
+        max_size:                  int,
+        snapshot_interval:         int,
+        initial_snapshot_interval: int | None = None,
+        active_cache_size:         int = 4,
+        seed:                      int = 0,
+        checkpoint_dir:            Path | None = None,
     ) -> None:
         if max_size < 3:
             raise ValueError("snapshot pool must retain at least three policies")
         if snapshot_interval < 1 or active_cache_size < 1:
             raise ValueError("snapshot pool settings must be positive")
+        if initial_snapshot_interval is not None and initial_snapshot_interval < 1:
+            raise ValueError("initial snapshot interval must be positive")
 
         self.max_size = max_size
         self.snapshot_interval = snapshot_interval
+        self.initial_snapshot_interval = (
+            snapshot_interval
+            if initial_snapshot_interval is None
+            else initial_snapshot_interval
+        )
         self.active_cache_size = active_cache_size
         self._random = random.Random(seed)
         self.checkpoint_dir = checkpoint_dir
@@ -98,7 +106,12 @@ class SnapshotPool:
         timesteps:     int,
         protected_ids: tuple[int, ...] = (),
     ) -> bool:
-        if timesteps - self._last_snapshot < self.snapshot_interval:
+        interval = (
+            self.initial_snapshot_interval
+            if self._next_id == 1
+            else self.snapshot_interval
+        )
+        if timesteps - self._last_snapshot < interval:
             return False
         self.add(policy, timesteps, protected_ids)
         return True

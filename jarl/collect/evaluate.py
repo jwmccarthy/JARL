@@ -49,6 +49,7 @@ class TrueSkillEvaluator:
         self.next_evaluation = interval
         self.current_step = 0
         self.evaluation_count = 0
+        self.last_snapshot_id = None
         self.rating_system = trueskill.TrueSkill(
             draw_probability=draw_probability
         )
@@ -62,6 +63,13 @@ class TrueSkillEvaluator:
 
     def ready(self, step: int) -> bool:
         self.current_step = step
+        snapshot_ids = self.opponent_pool.archive_ids
+        if len(snapshot_ids) < 2:
+            return False
+        if snapshot_ids[-1] != self.last_snapshot_id:
+            while self.next_evaluation <= step:
+                self.next_evaluation += self.interval
+            return True
         if step < self.next_evaluation:
             return False
         while self.next_evaluation <= step:
@@ -126,6 +134,7 @@ class TrueSkillEvaluator:
                 games += len(outcomes)
 
         self.evaluation_count += 1
+        self.last_snapshot_id = latest_id
         self._recompute_ratings()
         rating = self.snapshot_ratings[latest_id]
         self.logger.update(
