@@ -81,11 +81,35 @@ class RecurrentRolloutMinibatches:
 
         time, num_envs = data.shape[:2]
 
+        remainder = time % self.sequence_length
+        if remainder:
+            padding = self.sequence_length - remainder
+            had_learner_mask = "learner_mask" in data
+            padded = {
+                key: th.cat(
+                    (
+                        value,
+                        th.zeros(
+                            (padding, *value.shape[1:]),
+                            dtype=value.dtype,
+                            device=value.device,
+                        ),
+                    )
+                )
+                for key, value in data.items()
+            }
+            data = TensorBatch(padded)
+            if not had_learner_mask:
+                valid = th.ones(
+                    (time + padding, num_envs),
+                    dtype=th.bool,
+                    device=data.device,
+                )
+                valid[time:] = False
+                data = data.with_fields(learner_mask=valid)
+            time += padding
+
         chunks = time // self.sequence_length
-        if not chunks:
-            raise ValueError("rollout is shorter than one recurrent sequence")
-        if time % self.sequence_length:
-            data = data[: chunks * self.sequence_length]
         sequences = self._build_sequences(data, chunks, num_envs)
         learner_mask = sequences.get("learner_mask")
         if learner_mask is None:
