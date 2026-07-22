@@ -17,8 +17,8 @@ class SnapshotPool:
         max_size:          int,
         snapshot_interval: int,
         active_cache_size: int = 4,
-        seed: int = 0,
-        checkpoint_dir: Path | None = None,
+        seed:              int = 0,
+        checkpoint_dir:    Path | None = None,
     ) -> None:
         if max_size < 3:
             raise ValueError("snapshot pool must retain at least three policies")
@@ -31,9 +31,15 @@ class SnapshotPool:
         self._random = random.Random(seed)
         self.checkpoint_dir = checkpoint_dir
         if self.checkpoint_dir is not None:
+            if self.checkpoint_dir.exists() and any(self.checkpoint_dir.iterdir()):
+                raise ValueError(
+                    f"snapshot directory is not empty: {self.checkpoint_dir}"
+                )
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
         self._snapshots = OrderedDict()
         self._timesteps = {}
+        self._checkpoint_paths = {}
         self._active = OrderedDict()
         self._next_id = 0
         self._last_snapshot = 0
@@ -43,23 +49,35 @@ class SnapshotPool:
     def ids(self) -> tuple[int, ...]:
         return tuple(self._snapshots)
 
+    @property
+    def archive_ids(self) -> tuple[int, ...]:
+        return tuple(self._timesteps)
+
     def add(
         self,
         policy,
         timesteps:     int,
         protected_ids: tuple[int, ...] = (),
     ) -> int:
+        if self._next_id and timesteps <= self._last_snapshot:
+            raise ValueError("snapshot timesteps must be strictly increasing")
+
         snapshot = copy.deepcopy(policy).to("cpu").eval().requires_grad_(False)
         snapshot_id = self._next_id
         self._next_id += 1
         self._snapshots[snapshot_id] = snapshot
         self._timesteps[snapshot_id] = timesteps
         self._last_snapshot = timesteps
+
         if self.checkpoint_dir is not None:
+            checkpoint_path = self.checkpoint_dir / f"policy_{timesteps:012d}.pt"
+            temporary_path = checkpoint_path.with_suffix(".pt.tmp")
             th.save(
                 snapshot.state_dict(),
-                self.checkpoint_dir / f"policy_{timesteps:012d}.pt",
+                temporary_path,
             )
+            temporary_path.replace(checkpoint_path)
+            self._checkpoint_paths[snapshot_id] = checkpoint_path
 
         protected = set(protected_ids) | {next(iter(self._snapshots)), snapshot_id}
         while len(self._snapshots) > self.max_size:
@@ -68,7 +86,8 @@ class SnapshotPool:
                 break
             removed_id = min(removable, key=self._retention_cost)
             self._snapshots.pop(removed_id)
-            self._timesteps.pop(removed_id)
+            if self.checkpoint_dir is None:
+                self._timesteps.pop(removed_id)
             self._active.pop(removed_id, None)
 
         return snapshot_id
@@ -138,15 +157,29 @@ class SnapshotPool:
         return max(gaps, default=0), sum(gap * gap for gap in gaps), removed_id
 
     def policy(self, snapshot_id: int, device: th.device | str):
-        if snapshot_id not in self._snapshots:
+        if snapshot_id not in self._timesteps:
             raise KeyError(f"unknown snapshot {snapshot_id}")
+
         if snapshot_id in self._active:
             policy = self._active.pop(snapshot_id)
             self._active[snapshot_id] = policy
             return policy
 
-        policy = copy.deepcopy(self._snapshots[snapshot_id]).to(device).eval()
+        if snapshot_id in self._snapshots:
+            policy = copy.deepcopy(self._snapshots[snapshot_id])
+        else:
+            checkpoint_path = self._checkpoint_paths.get(snapshot_id)
+            if checkpoint_path is None:
+                raise KeyError(f"snapshot {snapshot_id} is no longer available")
+
+            policy = copy.deepcopy(next(iter(self._snapshots.values())))
+            policy.load_state_dict(
+                th.load(checkpoint_path, map_location="cpu", weights_only=True)
+            )
+
+        policy = policy.to(device).eval()
         self._active[snapshot_id] = policy
+
         while len(self._active) > self.active_cache_size:
             self._active.popitem(last=False)
         return policy
