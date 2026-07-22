@@ -21,16 +21,20 @@ ResetTransform = Callable[[TensorBatch, ResetContext], TensorBatch]
 class DatasetResetSampler:
     def __init__(
         self,
-        dataset:    TensorDataset,
+        dataset:     TensorDataset,
         *,
-        transforms: Iterable[ResetTransform] = (),
-        seed:       int = 0,
+        transforms:  Iterable[ResetTransform] = (),
+        probability: float = 1.0,
+        seed:        int = 0,
     ) -> None:
         if not isinstance(dataset, TensorDataset):
             raise TypeError("dataset must be a TensorDataset")
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError("reset probability must be between zero and one")
 
         self.dataset = dataset
         self.transforms = tuple(transforms)
+        self.probability = probability
         if not all(callable(transform) for transform in self.transforms):
             raise TypeError("reset transforms must be callable")
 
@@ -51,6 +55,19 @@ class DatasetResetSampler:
         if not count:
             return None
 
+        if self.probability == 0.0:
+            return None
+        if self.probability < 1.0:
+            selected = th.rand(
+                count,
+                device=self.dataset.device,
+                generator=self._generator,
+            ) < self.probability
+            environment_indices = environment_indices[selected]
+            count = environment_indices.numel()
+            if not count:
+                return None
+
         dataset_indices = th.randint(
             len(self.dataset),
             (count,),
@@ -69,7 +86,7 @@ class DatasetResetSampler:
             sample = transform(sample, context)
             self._validate_sample(sample, count)
 
-        return sample
+        return sample.with_fields(simulation_indices=environment_indices)
 
     def _validate_sample(
         self,

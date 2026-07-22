@@ -52,7 +52,7 @@ When a truncated transition has no terminal observation, JARL does not bootstrap
 
 `TensorBatch` stores named tensors with a shared leading shape. `TensorDataset` stores a nonempty batch on one device.
 
-`DatasetResetSampler` samples one dataset row for each true value in a reset mask. It uses its own seeded generator and returns `None` for an empty mask. Optional reset transforms receive the sample and a `ResetContext`.
+`DatasetResetSampler` samples dataset rows for a reset mask. Its probability setting can leave part of the mask unchanged for the environment's normal reset behavior. It uses its own seeded generator and returns `None` when no override is selected. Optional reset transforms receive the sample and a `ResetContext`.
 
 ```python
 dataset = TensorDataset(TensorBatch({"state": states}))
