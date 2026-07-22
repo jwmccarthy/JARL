@@ -62,6 +62,50 @@ class ValueCapture:
         }
 
 
+class RecurrentValueCapture:
+    """Capture values using recurrent state independent from the policy."""
+
+    def __init__(self, estimator) -> None:
+        self.estimator = estimator
+        self.state = None
+
+    def reset_state(self, batch_size: int) -> None:
+        self.state = self.estimator.initial_state(batch_size)
+        if self.state is None:
+            raise ValueError("recurrent value capture requires a recurrent estimator")
+
+    @th.no_grad()
+    def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
+        if self.state is None:
+            raise RuntimeError("recurrent value capture must be reset before use")
+
+        value_state = self.state
+        features, next_state = self.estimator.body_features(
+            context.observation, value_state
+        )
+        baseline_value = self.estimator.value_from_features(features)
+        next_obs = th.as_tensor(
+            context.env_step.next_obs,
+            device=context.observation.device,
+        )
+        next_features, _ = self.estimator.body_features(next_obs, next_state)
+        baseline_next_value = self.estimator.value_from_features(next_features)
+
+        done = th.as_tensor(
+            context.env_step.done, dtype=th.bool, device=next_state.device
+        )
+        self.state = next_state
+        if done.any():
+            self.state = next_state.clone()
+            self.state[done] = 0
+
+        return {
+            "value_state": value_state,
+            "baseline_value": baseline_value,
+            "baseline_next_value": baseline_next_value,
+        }
+
+
 def build_record(
     context: CaptureContext,
     captures,

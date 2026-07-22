@@ -42,3 +42,30 @@ class OptimizerStep:
     def advance_scheduler(self) -> None:
         if self.scheduler is not None:
             self.scheduler.step()
+
+
+class IndependentOptimizerSteps:
+    """Apply one backward pass with independent clipping and optimizers."""
+
+    def __init__(self, *steps: OptimizerStep) -> None:
+        if not steps:
+            raise ValueError("at least one optimizer step is required")
+        parameter_ids = [
+            id(parameter) for step in steps for parameter in step.parameters
+        ]
+        if len(parameter_ids) != len(set(parameter_ids)):
+            raise ValueError("independent optimizer steps cannot share parameters")
+        self.steps = steps
+
+    def __call__(self, loss: th.Tensor) -> None:
+        for step in self.steps:
+            step.optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        for step in self.steps:
+            if step.max_grad_norm is not None:
+                clip_grad_norm_(step.parameters, step.max_grad_norm)
+            step.optimizer.step()
+
+    def advance_scheduler(self) -> None:
+        for step in self.steps:
+            step.advance_scheduler()

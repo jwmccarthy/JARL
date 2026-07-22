@@ -26,6 +26,10 @@ class Runner:
     def reset(self):
         self.observation = self.env.reset()
         self.state = self.policy.initial_state(self.n_envs)
+        for capture in self.captures:
+            reset_state = getattr(capture, "reset_state", None)
+            if reset_state is not None:
+                reset_state(self.n_envs)
         return self.observation
 
     @th.no_grad()

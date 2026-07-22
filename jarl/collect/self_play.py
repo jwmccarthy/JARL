@@ -20,7 +20,9 @@ class SnapshotPool:
         seed: int = 0,
         checkpoint_dir: Path | None = None,
     ) -> None:
-        if max_size < 1 or snapshot_interval < 1 or active_cache_size < 1:
+        if max_size < 3:
+            raise ValueError("snapshot pool must retain at least three policies")
+        if snapshot_interval < 1 or active_cache_size < 1:
             raise ValueError("snapshot pool settings must be positive")
 
         self.max_size = max_size
@@ -31,6 +33,7 @@ class SnapshotPool:
         if self.checkpoint_dir is not None:
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self._snapshots = OrderedDict()
+        self._timesteps = {}
         self._active = OrderedDict()
         self._next_id = 0
         self._last_snapshot = 0
@@ -50,6 +53,7 @@ class SnapshotPool:
         snapshot_id = self._next_id
         self._next_id += 1
         self._snapshots[snapshot_id] = snapshot
+        self._timesteps[snapshot_id] = timesteps
         self._last_snapshot = timesteps
         if self.checkpoint_dir is not None:
             th.save(
@@ -57,11 +61,14 @@ class SnapshotPool:
                 self.checkpoint_dir / f"policy_{timesteps:012d}.pt",
             )
 
-        protected = set(protected_ids) | {snapshot_id}
-        removable = [key for key in self._snapshots if key not in protected]
-        while len(self._snapshots) > self.max_size and removable:
-            removed_id = removable.pop(0)
+        protected = set(protected_ids) | {next(iter(self._snapshots)), snapshot_id}
+        while len(self._snapshots) > self.max_size:
+            removable = [key for key in self._snapshots if key not in protected]
+            if not removable:
+                break
+            removed_id = min(removable, key=self._retention_cost)
             self._snapshots.pop(removed_id)
+            self._timesteps.pop(removed_id)
             self._active.pop(removed_id, None)
 
         return snapshot_id
@@ -82,6 +89,53 @@ class SnapshotPool:
             raise ValueError("historical policy count must be positive")
         ids = list(self._snapshots)
         return tuple(self._random.sample(ids, min(count, len(ids))))
+
+    def select_ids(self, count: int) -> tuple[int, ...]:
+        """Select anchors spanning the retained training history."""
+        if count < 1:
+            raise ValueError("historical policy count must be positive")
+        ids = list(self._snapshots)
+        if count >= len(ids):
+            return tuple(ids)
+        if count == 1:
+            return (ids[-1],)
+
+        selected = {ids[0]}
+        selected.add(ids[-1])
+        while len(selected) < count:
+            candidates = [
+                snapshot_id for snapshot_id in ids if snapshot_id not in selected
+            ]
+            selected.add(
+                max(
+                    candidates,
+                    key=lambda snapshot_id: (
+                        min(
+                            abs(
+                                self._timesteps[snapshot_id]
+                                - self._timesteps[selected_id]
+                            )
+                            for selected_id in selected
+                        ),
+                        self._timesteps[snapshot_id],
+                    ),
+                )
+            )
+        return tuple(snapshot_id for snapshot_id in ids if snapshot_id in selected)
+
+    def timesteps(self, snapshot_id: int) -> int:
+        if snapshot_id not in self._timesteps:
+            raise KeyError(f"unknown snapshot {snapshot_id}")
+        return self._timesteps[snapshot_id]
+
+    def _retention_cost(self, removed_id: int) -> tuple[int, int, int]:
+        remaining = [
+            self._timesteps[snapshot_id]
+            for snapshot_id in self._snapshots
+            if snapshot_id != removed_id
+        ]
+        gaps = [right - left for left, right in zip(remaining, remaining[1:])]
+        return max(gaps, default=0), sum(gap * gap for gap in gaps), removed_id
 
     def policy(self, snapshot_id: int, device: th.device | str):
         if snapshot_id not in self._snapshots:
@@ -150,7 +204,9 @@ class SelfPlayMatchmaker:
         else:
             done = th.as_tensor(done, dtype=th.bool, device=self.device)
             if done.shape != (self.n_envs,):
-                raise ValueError(f"expected done shape {(self.n_envs,)}, got {done.shape}")
+                raise ValueError(
+                    f"expected done shape {(self.n_envs,)}, got {done.shape}"
+                )
             match_done = done.view(self.num_matches, self.players_per_match).any(-1)
             matches = match_done.nonzero(as_tuple=True)[0]
 
@@ -162,9 +218,10 @@ class SelfPlayMatchmaker:
         learner[matches] = True
         opponents[matches] = -1
 
-        historical = th.rand(
-            len(matches), generator=self._generator, device=self.device
-        ) < self.historical_fraction
+        historical = (
+            th.rand(len(matches), generator=self._generator, device=self.device)
+            < self.historical_fraction
+        )
         historical_matches = matches[historical]
         if not historical_matches.numel():
             self.learner_count = int(self.learner_mask.sum().item())
@@ -237,6 +294,10 @@ class SelfPlayRunner:
     def reset(self):
         self.observation = self.env.reset()
         self.state = self.policy.initial_state(self.n_envs)
+        for capture in self.captures:
+            reset_state = getattr(capture, "reset_state", None)
+            if reset_state is not None:
+                reset_state(self.n_envs)
         self.matchmaker.rematch()
         self._timestep_count = self.matchmaker.learner_count
         return self.observation
@@ -266,20 +327,30 @@ class SelfPlayRunner:
         if not len(finished):
             return env_step.info
         learner = self.matchmaker.learner_mask[finished].cpu().tolist()
-        historical_matches = self.matchmaker.opponent_ids.view(
+        historical_matches = (
+            self.matchmaker.opponent_ids.view(
             self.matchmaker.num_matches,
             self.matchmaker.players_per_match,
-        ).ge(0).any(dim=-1)
-        historical = historical_matches[:, None].expand(
-            -1, self.matchmaker.players_per_match
-        ).reshape(-1)[finished].cpu().tolist()
+            )
+            .ge(0)
+            .any(dim=-1)
+        )
+        historical = (
+            historical_matches[:, None]
+            .expand(-1, self.matchmaker.players_per_match)
+            .reshape(-1)[finished]
+            .cpu()
+            .tolist()
+        )
         info = dict(env_step.info)
-        for key in ("reward", "length"):
-            values = info.get(key)
-            if values is not None and len(values) == len(learner):
-                info[key] = [
-                    value for value, keep in zip(values, learner) if keep
-                ]
+        for key, values in tuple(info.items()):
+            if isinstance(values, list) and len(values) == len(learner):
+                info[key] = [value for value, keep in zip(values, learner) if keep]
+            if (
+                key in ("reward", "length")
+                and isinstance(values, list)
+                and len(values) == len(learner)
+            ):
                 info[f"historical_{key}"] = [
                     value
                     for value, active, past in zip(values, learner, historical)
@@ -294,7 +365,7 @@ class SelfPlayRunner:
         if self.opponent_pool.maybe_add(
             self.snapshot_policy, timesteps, protected_ids=protected_ids
         ):
-            historical_ids = self.opponent_pool.sample_ids(self.historical_policies)
+            historical_ids = self.opponent_pool.select_ids(self.historical_policies)
             self.matchmaker.set_historical_ids(historical_ids)
 
     def _act(self, observation: th.Tensor) -> PolicyOutput:
@@ -328,9 +399,7 @@ class SelfPlayRunner:
             opponent_mask = opponent_ids == snapshot_id
             opponent = self.opponent_pool.policy(snapshot_id, observation.device)
             opponent_state = None if self.state is None else self.state[opponent_mask]
-            opponent_output = opponent.act(
-                observation[opponent_mask], opponent_state
-            )
+            opponent_output = opponent.act(observation[opponent_mask], opponent_state)
             action[opponent_mask] = opponent_output.action
             if next_state is not None:
                 if opponent_output.next_state is None:

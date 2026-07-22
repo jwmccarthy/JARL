@@ -28,7 +28,7 @@ class PPOLoss:
         self.config = config
 
     def __call__(self, sample: TensorBatch | SequenceBatch) -> LossOutput:
-        batch, state, reset, valid = self._unpack_sample(sample)
+        batch, state, value_state, reset, valid = self._unpack_sample(sample)
 
         evaluation = self.policy.evaluate_actions(
             batch["observation"],
@@ -40,7 +40,7 @@ class PPOLoss:
         if value is None:
             value = self.value_function.evaluate_values(
                 batch["observation"],
-                state,
+                value_state,
                 reset=reset,
             )
 
@@ -73,10 +73,19 @@ class PPOLoss:
     @staticmethod
     def _unpack_sample(sample: TensorBatch | SequenceBatch):
         if isinstance(sample, SequenceBatch):
-            return sample.steps, sample.initial_state, sample.reset, sample.valid
+            value_state = sample.initial_value_state
+            if value_state is None:
+                value_state = sample.initial_state
+            return (
+                sample.steps,
+                sample.initial_state,
+                value_state,
+                sample.reset,
+                sample.valid,
+            )
 
         valid = th.ones_like(sample["advantage"], dtype=th.bool)
-        return sample, None, None, valid
+        return sample, None, None, None, valid
 
     def _normalize_advantage(self, advantage: th.Tensor) -> th.Tensor:
         if self.config.normalize_advantage:

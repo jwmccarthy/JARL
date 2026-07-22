@@ -44,6 +44,7 @@ class SequenceBatch:
     initial_state: th.Tensor
     reset: th.Tensor
     valid: th.Tensor
+    initial_value_state: th.Tensor | None = None
 
 
 class RecurrentRolloutMinibatches:
@@ -69,6 +70,7 @@ class RecurrentRolloutMinibatches:
             required = list(self.fields)
             for key in (
                 "policy_state",
+                "value_state",
                 "terminated",
                 "truncated",
                 "learner_mask",
@@ -141,10 +143,13 @@ class RecurrentRolloutMinibatches:
         selected: th.Tensor,
     ) -> SequenceBatch:
         state = sequences["policy_state"][selected, 0]
+        value_state = sequences.get("value_state")
+        if value_state is not None:
+            value_state = value_state[selected, 0]
         step_data = {
             key: value[selected].swapaxes(0, 1)
             for key, value in sequences.items()
-            if key != "policy_state"
+            if key not in ("policy_state", "value_state")
         }
         steps = TensorBatch(step_data)
 
@@ -160,4 +165,5 @@ class RecurrentRolloutMinibatches:
             initial_state=state,
             reset=reset,
             valid=valid.bool(),
+            initial_value_state=value_state,
         )

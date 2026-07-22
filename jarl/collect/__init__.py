@@ -2,6 +2,7 @@ from jarl.collect.capture import (
     CaptureContext,
     LogProbCapture,
     RecurrentStateCapture,
+    RecurrentValueCapture,
     ValueCapture,
     build_record,
 )
@@ -13,6 +14,7 @@ __all__ = [
     "CaptureContext",
     "LogProbCapture",
     "RecurrentStateCapture",
+    "RecurrentValueCapture",
     "Runner",
     "SelfPlayMatchmaker",
     "SelfPlayRunner",

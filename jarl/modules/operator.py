@@ -24,6 +24,11 @@ class ValueFunction(CompositeNet):
         self._composed = True
         return self
 
+    def initial_state(self, batch_size: int) -> th.Tensor | None:
+        if self._composed and hasattr(self.body, "initial_state"):
+            return self.body.initial_state(batch_size, device=self.device)
+        return None
+
     def forward(self, x: th.Tensor) -> th.Tensor:
         return super().forward(x).squeeze(-1)
 

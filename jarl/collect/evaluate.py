@@ -70,7 +70,7 @@ class TrueSkillEvaluator:
                     f"expected {expected}"
                 )
 
-        snapshot_ids = self.opponent_pool.ids[-self.opponents :]
+        snapshot_ids = self.opponent_pool.select_ids(self.opponents)
         wins = draws = games = 0
         devices = [self.policy.device.index or 0]
         with torch.random.fork_rng(devices=devices):
@@ -209,8 +209,10 @@ class TrueSkillEvaluator:
                 "sigma": rating.sigma,
                 "skill": rating.mu - 3.0 * rating.sigma,
                 "games": self.rating_games.get(snapshot_id, 0),
+                "timesteps": self.opponent_pool.timesteps(snapshot_id),
             }
             for snapshot_id, rating in self.snapshot_ratings.items()
+            if snapshot_id in self.opponent_pool.ids
         }
         payload = {
             "current": {
