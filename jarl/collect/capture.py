@@ -6,10 +6,10 @@ from jarl.data.records import EnvStep, PolicyOutput
 
 @dataclass
 class CaptureContext:
-    observation: th.Tensor
-    state: th.Tensor | None
+    observation:   th.Tensor
+    state:         th.Tensor | None
     policy_output: PolicyOutput
-    env_step: EnvStep
+    env_step:      EnvStep
 
 
 class LogProbCapture:
@@ -36,13 +36,16 @@ class ValueCapture:
             context.env_step.next_obs,
             device=context.observation.device,
         )
+
         baseline_value = context.policy_output.extras.get("value")
         learner_mask = context.policy_output.extras.get("learner_mask")
+
         if baseline_value is None:
             baseline_value = self.estimator.value(
                 context.observation,
                 context.state,
             )
+
         if learner_mask is None:
             baseline_next_value = self.estimator.value(
                 next_obs,
@@ -56,6 +59,7 @@ class ValueCapture:
                 next_obs[learner_mask],
                 learner_state,
             )
+
         return {
             "baseline_value":      baseline_value,
             "baseline_next_value": baseline_next_value,

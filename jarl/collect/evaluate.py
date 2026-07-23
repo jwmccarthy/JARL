@@ -12,14 +12,14 @@ class TrueSkillEvaluator:
         opponent_pool,
         env_factory,
         logger,
-        checkpoint_dir: Path,
+        checkpoint_dir:   Path,
         interval:         int,
         num_matches:      int,
         team_sizes:       tuple[int, int],
         max_steps:        int,
         opponents:        int,
         draw_probability: float,
-        seed:              int,
+        seed:             int,
     ) -> None:
         if interval < 1 or num_matches < 1 or max_steps < 1 or opponents < 1:
             raise ValueError("TrueSkill settings must be positive")
@@ -64,16 +64,20 @@ class TrueSkillEvaluator:
     def ready(self, step: int) -> bool:
         self.current_step = step
         snapshot_ids = self.opponent_pool.archive_ids
+
         if len(snapshot_ids) < 2:
             return False
-        if snapshot_ids[-1] != self.last_snapshot_id:
-            while self.next_evaluation <= step:
-                self.next_evaluation += self.interval
-            return True
-        if step < self.next_evaluation:
+
+        ready = (
+            snapshot_ids[-1] != self.last_snapshot_id
+            or step >= self.next_evaluation
+        )
+        if not ready:
             return False
+
         while self.next_evaluation <= step:
             self.next_evaluation += self.interval
+
         return True
 
     @torch.no_grad()
@@ -229,16 +233,22 @@ class TrueSkillEvaluator:
                 ),
                 dim=1,
             ).flatten(0, 1)
+
             observation, reward, terminated, truncated, _ = self.env.step(action)
+
             done = (terminated | truncated).view(
                 self.num_matches, self.players_per_match
             ).any(dim=-1)
+
             finished = active & done
+
             blue_result = reward.view(
                 self.num_matches, self.players_per_match
             )[:, 0]
+
             outcomes[finished] = blue_result[finished]
             active &= ~done
+
             if not active.any():
                 break
 

@@ -126,7 +126,9 @@ class SnapshotPool:
         """Select anchors spanning the retained training history."""
         if count < 1:
             raise ValueError("historical policy count must be positive")
+
         ids = list(self._snapshots)
+
         if count >= len(ids):
             return tuple(ids)
         if count == 1:
@@ -134,31 +136,37 @@ class SnapshotPool:
 
         selected = {ids[0]}
         selected.add(ids[-1])
+
         while len(selected) < count:
             candidates = [
                 snapshot_id for snapshot_id in ids if snapshot_id not in selected
             ]
-            selected.add(
-                max(
-                    candidates,
-                    key=lambda snapshot_id: (
-                        min(
-                            abs(
-                                self._timesteps[snapshot_id]
-                                - self._timesteps[selected_id]
-                            )
-                            for selected_id in selected
-                        ),
-                        self._timesteps[snapshot_id],
-                    ),
-                )
+            best = max(
+                candidates,
+                key=lambda snapshot_id: self._selection_priority(
+                    snapshot_id, selected
+                ),
             )
+            selected.add(best)
+
         return tuple(snapshot_id for snapshot_id in ids if snapshot_id in selected)
 
     def timesteps(self, snapshot_id: int) -> int:
         if snapshot_id not in self._timesteps:
             raise KeyError(f"unknown snapshot {snapshot_id}")
         return self._timesteps[snapshot_id]
+
+    def _selection_priority(
+        self,
+        snapshot_id: int,
+        selected:    set[int],
+    ) -> tuple[int, int]:
+        timestep = self._timesteps[snapshot_id]
+        distance = min(
+            abs(timestep - self._timesteps[selected_id])
+            for selected_id in selected
+        )
+        return distance, timestep
 
     def _retention_cost(self, removed_id: int) -> tuple[int, int, int]:
         remaining = [
@@ -370,9 +378,12 @@ class SelfPlayRunner:
 
     def _learner_episode_info(self, env_step) -> dict:
         finished = env_step.done.nonzero(as_tuple=True)[0]
+
         if not len(finished):
             return env_step.info
+
         learner = self.matchmaker.learner_mask[finished].cpu().tolist()
+
         historical_matches = (
             self.matchmaker.opponent_ids.view(
             self.matchmaker.num_matches,
@@ -388,7 +399,9 @@ class SelfPlayRunner:
             .cpu()
             .tolist()
         )
+
         info = dict(env_step.info)
+
         for key, values in tuple(info.items()):
             if isinstance(values, list) and len(values) == len(learner):
                 info[key] = [value for value, keep in zip(values, learner) if keep]
@@ -402,12 +415,14 @@ class SelfPlayRunner:
                     for value, active, past in zip(values, learner, historical)
                     if active and past
                 ]
+
         return info
 
     def after_update(self, timesteps: int) -> None:
         assigned = self.matchmaker.opponent_ids
         assigned = assigned[assigned >= 0].unique().tolist()
         protected_ids = tuple(set(assigned) | set(self.matchmaker.historical_ids))
+
         if self.opponent_pool.maybe_add(
             self.snapshot_policy, timesteps, protected_ids=protected_ids
         ):
@@ -418,6 +433,7 @@ class SelfPlayRunner:
         learner_mask = self.matchmaker.learner_mask
         learner_state = None if self.state is None else self.state[learner_mask]
         learner_output = self.policy.act(observation[learner_mask], learner_state)
+
         if learner_output.log_prob is None:
             raise ValueError("learner policy did not produce log probabilities")
 
@@ -431,6 +447,7 @@ class SelfPlayRunner:
             dtype=learner_output.log_prob.dtype,
             device=observation.device,
         )
+
         action[learner_mask] = learner_output.action
         log_prob[learner_mask] = learner_output.log_prob
         next_state = self._next_state(learner_output, learner_mask)
@@ -441,12 +458,14 @@ class SelfPlayRunner:
         extras["learner_mask"] = learner_mask
 
         opponent_ids = self.matchmaker.opponent_ids
+
         for snapshot_id in opponent_ids[~learner_mask].unique().tolist():
             opponent_mask = opponent_ids == snapshot_id
             opponent = self.opponent_pool.policy(snapshot_id, observation.device)
             opponent_state = None if self.state is None else self.state[opponent_mask]
             opponent_output = opponent.act(observation[opponent_mask], opponent_state)
             action[opponent_mask] = opponent_output.action
+
             if next_state is not None:
                 if opponent_output.next_state is None:
                     raise ValueError("recurrent opponent did not produce a next state")

@@ -94,6 +94,7 @@ def _make_env_step(result) -> EnvStep:
 def _transition_observation(observation, terminated, truncated, info):
     info = dict(info)
     has_final = "final_obs" in info or "final_observation" in info
+
     if isinstance(observation, th.Tensor):
         next_obs = observation.clone() if has_final else observation
         done = th.as_tensor(
@@ -114,6 +115,7 @@ def _transition_observation(observation, terminated, truncated, info):
 
         final_obs = info.pop(final_key)
         mask = info.pop(mask_key, done)
+
         if isinstance(observation, th.Tensor):
             mask = th.as_tensor(mask, dtype=th.bool, device=observation.device)
             final_obs = th.as_tensor(final_obs, device=observation.device)
@@ -126,6 +128,7 @@ def _transition_observation(observation, terminated, truncated, info):
                     next_obs[index] = final_obs[index]
             else:
                 next_obs[mask] = final_obs[mask]
+
         available |= mask
         break
 

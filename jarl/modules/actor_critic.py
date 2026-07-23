@@ -20,34 +20,41 @@ class ActorCritic(nn.Module):
 
     def build(self, env):
         if self.shared_state:
-            if self.actor.head is not self.critic.head:
-                raise ValueError("shared state requires the same head instance")
-            if self.actor.body is not self.critic.body:
-                raise ValueError("shared state requires the same body instance")
-
-            head = self.actor.head
-            body = self.actor.body
-            if not head.built:
-                head.build(env)
-            if not getattr(body, "built", False):
-                body.build(head.feats)
-            if not hasattr(body, "feats"):
-                raise TypeError("shared body must expose its output feature count")
-
-            self.actor.build_composed(env, body.feats)
-            self.critic.build_composed(env, body.feats)
+            self._build_shared(env)
         else:
-            self.actor.build(env)
-            self.critic.build(env)
-            if self.actor.initial_state(1) is not None or hasattr(
-                self.critic.body, "initial_state"
-            ):
-                raise NotImplementedError(
-                    "independent recurrent actor-critic state is not yet supported"
-                )
+            self._build_independent(env)
 
         self.built = True
         return self
+
+    def _build_shared(self, env) -> None:
+        if self.actor.head is not self.critic.head:
+            raise ValueError("shared state requires the same head instance")
+        if self.actor.body is not self.critic.body:
+            raise ValueError("shared state requires the same body instance")
+
+        head = self.actor.head
+        body = self.actor.body
+        if not head.built:
+            head.build(env)
+        if not getattr(body, "built", False):
+            body.build(head.feats)
+        if not hasattr(body, "feats"):
+            raise TypeError("shared body must expose its output feature count")
+
+        self.actor.build_composed(env, body.feats)
+        self.critic.build_composed(env, body.feats)
+
+    def _build_independent(self, env) -> None:
+        self.actor.build(env)
+        self.critic.build(env)
+
+        actor_recurrent = self.actor.initial_state(1) is not None
+        critic_recurrent = hasattr(self.critic.body, "initial_state")
+        if actor_recurrent or critic_recurrent:
+            raise NotImplementedError(
+                "independent recurrent actor-critic state is not yet supported"
+            )
 
     def to(self, device, *args, **kwargs):
         self.device = th.device(device)
