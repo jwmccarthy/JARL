@@ -35,6 +35,7 @@ class ActorCritic(nn.Module):
 
         head = self.actor.head
         body = self.actor.body
+
         if not head.built:
             head.build(env)
         if not getattr(body, "built", False):

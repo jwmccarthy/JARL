@@ -5,9 +5,9 @@ from jarl.transform.base import PrepareContext
 
 
 def discounted_suffix_sum(
-    value: th.Tensor,
+    value:     th.Tensor,
     continues: th.Tensor,
-    discount: float,
+    discount:  float,
 ) -> th.Tensor:
     if value.shape != continues.shape:
         raise ValueError("value and continuation masks must have matching shapes")
@@ -34,14 +34,15 @@ def discounted_suffix_sum(
     )
     padded = th.cat((suffix, th.zeros_like(suffix[:1])), dim=0)
     after_segment = padded.gather(0, segment_end + 1)
+
     return (suffix - after_segment) / powers
 
 
 class GAE:
     def __init__(
         self,
-        gamma: float = 0.99,
-        lambda_: float = 0.95,
+        gamma:        float = 0.99,
+        lambda_:      float = 0.95,
         reward_field: str = "reward",
     ) -> None:
         self.gamma = gamma

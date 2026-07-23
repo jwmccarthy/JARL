@@ -7,11 +7,11 @@ from jarl.modules.policy import Policy
 class Evaluator:
     def __init__(
         self,
-        env: SyncGymEnv,
+        env:    SyncGymEnv,
         policy: Policy,
-        path: str = None,
-        freq: int = int(25e4),
-        steps: int = int(25e3),
+        path:   str = None,
+        freq:   int = int(25e4),
+        steps:  int = int(25e3),
     ) -> None:
         self.env = env
         self.policy = policy
@@ -36,5 +36,4 @@ class Evaluator:
             policy_output = self.policy.act(observation, deterministic=True)
             observation, _, _, _, _ = self.env.step(policy_output.action)
 
-        if self.path:
-            self.save()
+        if self.path: self.save()

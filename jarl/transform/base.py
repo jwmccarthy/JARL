@@ -10,9 +10,9 @@ class PrepareContext:
 
 
 def apply_transforms(
-    batch: TensorBatch,
+    batch:      TensorBatch,
     transforms,
-    context: PrepareContext | None = None,
+    context:    PrepareContext | None = None,
 ) -> TensorBatch:
     context = context or PrepareContext()
 

@@ -20,6 +20,7 @@ class MaterializeValues:
 
         value = self.estimator.value(batch["observation"])
         next_value = self.estimator.value(batch["next_obs"])
+        
         return batch.with_fields(
             baseline_value=value,
             baseline_next_value=next_value,

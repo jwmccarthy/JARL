@@ -17,8 +17,8 @@ class TeamSpirit:
     def __init__(
         self,
         num_matches: int,
-        team_sizes: tuple[int, int],
-        spirit: float,
+        team_sizes:  tuple[int, int],
+        spirit:      float,
     ) -> None:
         if num_matches < 1 or any(size < 1 for size in team_sizes):
             raise ValueError("team dimensions must be positive")
@@ -62,10 +62,10 @@ class DiscriminatorReward:
     def __init__(
         self,
         discriminator,
-        output_field: str = "imitation_reward",
-        from_logits: bool = True,
+        output_field:  str = "imitation_reward",
+        from_logits:   bool = True,
         mask_terminal: bool = False,
-        reward_type: str = "softplus",
+        reward_type:   str = "softplus",
     ) -> None:
         if reward_type not in ("softplus", "negative_logit"):
             raise ValueError("unknown discriminator reward type")
