@@ -40,14 +40,22 @@ class RolloutMinibatches:
 
 @dataclass(frozen=True)
 class SequenceBatch:
-    steps: TensorBatch
-    initial_state: th.Tensor
-    reset: th.Tensor
-    valid: th.Tensor
+    steps:               TensorBatch
+    initial_state:       th.Tensor
+    reset:               th.Tensor
+    valid:               th.Tensor
     initial_value_state: th.Tensor | None = None
 
 
 class RecurrentRolloutMinibatches:
+    required_fields = (
+        "policy_state",
+        "value_state",
+        "terminated",
+        "truncated",
+        "learner_mask",
+    )
+
     def __init__(
         self,
         sequence_length: int,
@@ -66,58 +74,22 @@ class RecurrentRolloutMinibatches:
     def __call__(self, data: TensorBatch):
         if "policy_state" not in data:
             raise ValueError("recurrent sampling requires policy_state")
-        if self.fields is not None:
-            required = list(self.fields)
-            for key in (
-                "policy_state",
-                "value_state",
-                "terminated",
-                "truncated",
-                "learner_mask",
-            ):
-                if key in data and key not in required:
-                    required.append(key)
-            data = data.select(*required)
 
+        data = self._select_fields(data)
+        data = self._pad_rollout(data)
         time, num_envs = data.shape[:2]
-
-        remainder = time % self.sequence_length
-        if remainder:
-            padding = self.sequence_length - remainder
-            had_learner_mask = "learner_mask" in data
-            padded = {
-                key: th.cat(
-                    (
-                        value,
-                        th.zeros(
-                            (padding, *value.shape[1:]),
-                            dtype=value.dtype,
-                            device=value.device,
-                        ),
-                    )
-                )
-                for key, value in data.items()
-            }
-            data = TensorBatch(padded)
-            if not had_learner_mask:
-                valid = th.ones(
-                    (time + padding, num_envs),
-                    dtype=th.bool,
-                    device=data.device,
-                )
-                valid[time:] = False
-                data = data.with_fields(learner_mask=valid)
-            time += padding
 
         chunks = time // self.sequence_length
         sequences = self._build_sequences(data, chunks, num_envs)
         learner_mask = sequences.get("learner_mask")
+
         if learner_mask is None:
             eligible = th.arange(chunks * num_envs, device=data.device)
         else:
             eligible = learner_mask.any(dim=1).nonzero(as_tuple=True)[0]
         if not len(eligible):
             raise RuntimeError("rollout contains no learner sequences")
+
         done = sequences["terminated"] | sequences["truncated"]
         has_reset = done[:, :-1].any(dim=1)
         clean = eligible[~has_reset[eligible]]
@@ -126,6 +98,53 @@ class RecurrentRolloutMinibatches:
         for _ in range(self.epochs):
             yield from self._sample_epoch(sequences, clean)
             yield from self._sample_epoch(sequences, resetting)
+
+    def _select_fields(self, data: TensorBatch) -> TensorBatch:
+        if self.fields is None:
+            return data
+
+        required = list(self.fields)
+        required.extend(
+            key
+            for key in self.required_fields
+            if key in data and key not in required
+        )
+        return data.select(*required)
+
+    def _pad_rollout(self, data: TensorBatch) -> TensorBatch:
+        time, num_envs = data.shape[:2]
+        padding = -time % self.sequence_length
+        if not padding:
+            return data
+
+        had_learner_mask = "learner_mask" in data
+        data = TensorBatch(
+            {
+                key: self._pad_tensor(value, padding)
+                for key, value in data.items()
+            }
+        )
+
+        if had_learner_mask:
+            return data
+
+        valid = th.ones(
+            (time + padding, num_envs),
+            dtype=th.bool,
+            device=data.device,
+        )
+        valid[time:] = False
+
+        return data.with_fields(learner_mask=valid)
+
+    @staticmethod
+    def _pad_tensor(value: th.Tensor, padding: int) -> th.Tensor:
+        zeros = th.zeros(
+            (padding, *value.shape[1:]),
+            dtype=value.dtype,
+            device=value.device,
+        )
+        return th.cat((value, zeros))
 
     def _build_sequences(
         self,
@@ -168,8 +187,10 @@ class RecurrentRolloutMinibatches:
     ) -> SequenceBatch:
         state = sequences["policy_state"][selected, 0]
         value_state = sequences.get("value_state")
+
         if value_state is not None:
             value_state = value_state[selected, 0]
+
         step_data = {
             key: value[selected].swapaxes(0, 1)
             for key, value in sequences.items()
@@ -181,6 +202,7 @@ class RecurrentRolloutMinibatches:
         reset = th.zeros_like(done)
         reset[1:] = done[:-1]
         valid = steps.get("learner_mask")
+
         if valid is None:
             valid = th.ones_like(done)
 
