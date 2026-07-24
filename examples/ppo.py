@@ -18,7 +18,7 @@ from jarl.runtime import OnPolicySchedule, Trainer
 from jarl.sample import RolloutMinibatches
 from jarl.transform import GAE
 
-from lunar_lander import build_collection, build_policy_and_value, make_environment
+from lunar_lander import build_collection, build_policy_and_critic, make_environment
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -32,8 +32,8 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_ppo(environment, policy, value_function, rollout, arguments) -> Algorithm:
-    policy_parameters = unique_parameters((policy, value_function))
+def build_ppo(environment, policy, critic, rollout, arguments) -> Algorithm:
+    policy_parameters = unique_parameters((policy, critic))
     policy_optimizer = Adam(policy_parameters, lr=3e-4)
     vector_steps = arguments.total_timesteps // environment.n_envs
     update_count = (vector_steps + rollout.horizon - 1) // rollout.horizon
@@ -48,11 +48,11 @@ def build_ppo(environment, policy, value_function, rollout, arguments) -> Algori
         ),
         loss=PPOLoss(
             policy,
-            value_function,
+            critic,
             PPOConfig(clip=0.2, entropy_coef=0.01),
         ),
         optimizer_step=OptimizerStep(
-            (policy, value_function),
+            (policy, critic),
             policy_optimizer,
             max_grad_norm=0.5,
             scheduler=LinearLR(
@@ -78,15 +78,15 @@ def main() -> None:
 
     device = arguments.device or ("cuda" if torch.cuda.is_available() else "cpu")
     environment = SyncGymEnv(make_environment, arguments.num_envs)
-    policy, value_function = build_policy_and_value(environment, device)
+    policy, critic = build_policy_and_critic(environment, device)
     runner, rollout = build_collection(
         environment,
         policy,
-        value_function,
+        critic,
         arguments.rollout_steps,
         device,
     )
-    ppo = build_ppo(environment, policy, value_function, rollout, arguments)
+    ppo = build_ppo(environment, policy, critic, rollout, arguments)
 
     trainer = Trainer(runner, rollout, ppo, OnPolicySchedule())
     trainer.run(arguments.total_timesteps)

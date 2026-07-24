@@ -8,20 +8,20 @@ from jarl.sample.rollout import SequenceBatch
 
 
 @dataclass(frozen=True)
-class PPOConfig:
-    clip:                float = 0.2
+class SPOConfig:
+    ratio_epsilon:       float = 0.2
     value_clip:          float | None = 0.2
     value_coef:          float = 0.5
     entropy_coef:        float = 0.01
     normalize_advantage: bool = True
 
 
-class PPOLoss:
+class SPOLoss:
     def __init__(
         self,
         policy,
         critic,
-        config: PPOConfig = PPOConfig(),
+        config: SPOConfig = SPOConfig(),
     ) -> None:
         self.policy = policy
         self.critic = critic
@@ -37,6 +37,7 @@ class PPOLoss:
             reset=reset,
         )
         value = evaluation.value
+
         if value is None:
             value = self.critic.evaluate_values(
                 batch["observation"],
@@ -97,15 +98,14 @@ class PPOLoss:
     def _policy_loss(
         self,
         advantage: th.Tensor,
-        ratio: th.Tensor,
+        ratio:     th.Tensor,
     ) -> th.Tensor:
-        return -th.minimum(
-            advantage * ratio,
-            advantage
-            * ratio.clamp(
-                1 - self.config.clip,
-                1 + self.config.clip,
-            ),
+        return -1 * (
+            advantage * ratio - (
+                advantage.abs() 
+                / (2 * self.config.ratio_epsilon)
+                * (ratio - 1).square()
+            ) 
         ).mean()
 
     def _value_loss(

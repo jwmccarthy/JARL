@@ -66,7 +66,7 @@ sample = sampler(reset_mask)
 
 Transforms include GAE, discounted returns, n step targets, discriminator rewards, team rewards, and value materialization. Flat and recurrent samplers create update batches. `Algorithm` runs update stages in order. `Trainer` runs collection and update schedules.
 
-Model components include encoders, MLP, CNN, GRU, LSTM, categorical policies, value functions, and `ActorCritic`. Recurrent `ActorCritic` uses shared actor and critic head and body objects.
+Model components include encoders, MLP, CNN, GRU, LSTM, categorical policies, critics, and `ActorCritic`. Recurrent `ActorCritic` uses shared actor and critic head and body objects.
 
 ## Value Scheduling
 

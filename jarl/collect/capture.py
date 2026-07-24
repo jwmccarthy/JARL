@@ -26,9 +26,9 @@ class RecurrentStateCapture:
         return {"policy_state": context.state}
 
 
-class ValueCapture:
-    def __init__(self, estimator) -> None:
-        self.estimator = estimator
+class CriticCapture:
+    def __init__(self, critic) -> None:
+        self.critic = critic
 
     @th.no_grad()
     def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
@@ -41,13 +41,13 @@ class ValueCapture:
         learner_mask = context.policy_output.extras.get("learner_mask")
 
         if baseline_value is None:
-            baseline_value = self.estimator.value(
+            baseline_value = self.critic.value(
                 context.observation,
                 context.state,
             )
 
         if learner_mask is None:
-            baseline_next_value = self.estimator.value(
+            baseline_next_value = self.critic.value(
                 next_obs,
                 context.policy_output.next_state,
             )
@@ -55,7 +55,7 @@ class ValueCapture:
             baseline_next_value = th.zeros_like(baseline_value)
             next_state = context.policy_output.next_state
             learner_state = None if next_state is None else next_state[learner_mask]
-            baseline_next_value[learner_mask] = self.estimator.value(
+            baseline_next_value[learner_mask] = self.critic.value(
                 next_obs[learner_mask],
                 learner_state,
             )
@@ -66,34 +66,34 @@ class ValueCapture:
         }
 
 
-class RecurrentValueCapture:
-    """Capture values using recurrent state independent from the policy."""
+class RecurrentCriticCapture:
+    """Capture values using recurrent critic state independent from the policy."""
 
-    def __init__(self, estimator) -> None:
-        self.estimator = estimator
+    def __init__(self, critic) -> None:
+        self.critic = critic
         self.state = None
 
     def reset_state(self, batch_size: int) -> None:
-        self.state = self.estimator.initial_state(batch_size)
+        self.state = self.critic.initial_state(batch_size)
         if self.state is None:
-            raise ValueError("recurrent value capture requires a recurrent estimator")
+            raise ValueError("recurrent critic capture requires a recurrent critic")
 
     @th.no_grad()
     def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
         if self.state is None:
-            raise RuntimeError("recurrent value capture must be reset before use")
+            raise RuntimeError("recurrent critic capture must be reset before use")
 
-        value_state = self.state
-        features, next_state = self.estimator.body_features(
-            context.observation, value_state
+        critic_state = self.state
+        features, next_state = self.critic.body_features(
+            context.observation, critic_state
         )
-        baseline_value = self.estimator.value_from_features(features)
+        baseline_value = self.critic.value_from_features(features)
         next_obs = th.as_tensor(
             context.env_step.next_obs,
             device=context.observation.device,
         )
-        next_features, _ = self.estimator.body_features(next_obs, next_state)
-        baseline_next_value = self.estimator.value_from_features(next_features)
+        next_features, _ = self.critic.body_features(next_obs, next_state)
+        baseline_next_value = self.critic.value_from_features(next_features)
 
         done = th.as_tensor(
             context.env_step.done, dtype=th.bool, device=next_state.device
@@ -104,7 +104,7 @@ class RecurrentValueCapture:
             self.state[done] = 0
 
         return {
-            "value_state": value_state,
+            "critic_state": critic_state,
             "baseline_value": baseline_value,
             "baseline_next_value": baseline_next_value,
         }

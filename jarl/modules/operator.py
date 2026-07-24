@@ -9,7 +9,7 @@ from jarl.modules.base import CompositeNet
 from jarl.modules.encoder.core import Encoder
 
 
-class ValueFunction(CompositeNet):
+class Critic(CompositeNet):
     def __init__(self, head: Encoder, body: nn.Module, foot: nn.Module = None) -> None:
         super().__init__(head, body, foot)
         self._composed = False
@@ -19,7 +19,7 @@ class ValueFunction(CompositeNet):
 
     def build_composed(self, env: SyncGymEnv, in_dim: int) -> Self:
         if self.foot is None or not hasattr(self.foot, "build"):
-            raise TypeError("composed value function requires a buildable foot")
+            raise TypeError("composed critic requires a buildable foot")
         self.foot.build(in_dim, 1)
         self._composed = True
         return self
@@ -40,7 +40,7 @@ class ValueFunction(CompositeNet):
             return self.value_from_features(features)
         if state is not None:
             raise ValueError(
-                "feed-forward value functions do not accept recurrent state"
+                "feed-forward critics do not accept recurrent state"
             )
 
         return self(observation)
@@ -56,7 +56,7 @@ class ValueFunction(CompositeNet):
             features, _ = self.body_features(observation, state, reset)
             return self.value_from_features(features)
         if reset is not None:
-            raise ValueError("feed-forward value functions do not accept reset masks")
+            raise ValueError("feed-forward critics do not accept reset masks")
 
         return self.value(observation, state)
 
@@ -73,7 +73,7 @@ class ValueFunction(CompositeNet):
         if hasattr(self.body, "initial_state"):
             return self.body(features, state, reset)
         if state is not None or reset is not None:
-            raise ValueError("stateless value body does not accept state")
+            raise ValueError("stateless critic body does not accept state")
         return self.body(features), None
 
 

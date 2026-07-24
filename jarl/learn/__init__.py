@@ -13,6 +13,8 @@ __all__ = [
     "OptimizerStep",
     "PPOConfig",
     "PPOLoss",
+    "SPOConfig",
+    "SPOLoss",
     "TransformRollout",
     "Update",
     "unique_parameters",
