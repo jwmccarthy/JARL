@@ -12,6 +12,7 @@ class Trainer:
         logger: Logger | None = None,
         checkpoint=None,
         value_scheduler=None,
+        update_callback=None,
     ) -> None:
         self.runner = runner
         self.buffer = buffer
@@ -20,6 +21,7 @@ class Trainer:
         self.logger = logger or Logger()
         self.checkpoint = checkpoint
         self.value_scheduler = value_scheduler
+        self.update_callback = update_callback
         self.clock = Clock()
 
     def run(self, total_timesteps: int):
@@ -27,11 +29,15 @@ class Trainer:
             raise ValueError("total_timesteps must be positive")
         if self.value_scheduler is not None:
             self.value_scheduler.start(total_timesteps)
+            self.value_scheduler.advance(self.clock.env_steps)
         self.runner.reset()
         if total_timesteps < self.runner.timestep_count:
             raise ValueError("total_timesteps is smaller than one vector step")
 
-        with self.logger.progress(total_timesteps):
+        with self.logger.progress(
+            total_timesteps,
+            initial_timesteps=self.clock.env_steps,
+        ):
             while self.clock.env_steps < total_timesteps:
                 self._step(total_timesteps)
 
@@ -78,3 +84,5 @@ class Trainer:
         after_update = getattr(self.runner, "after_update", None)
         if after_update is not None:
             after_update(self.clock.env_steps)
+        if self.update_callback is not None:
+            self.update_callback(self)

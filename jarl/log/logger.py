@@ -119,7 +119,11 @@ class Logger:
         self._update_progress_metrics(info)
 
     @contextmanager
-    def progress(self, total_timesteps: int) -> Generator[None, None, None]:
+    def progress(
+        self,
+        total_timesteps: int,
+        initial_timesteps: int = 0,
+    ) -> Generator[None, None, None]:
         progress = Progress(
             TextColumn("[bold]{task.description}"),
             BarColumn(),
@@ -138,6 +142,7 @@ class Logger:
         global_t_task = progress.add_task(
             "global_t",
             total=total_timesteps,
+            completed=initial_timesteps,
         )
         self._progress = progress
         self._metrics = metrics
