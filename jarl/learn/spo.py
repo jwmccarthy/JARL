@@ -26,6 +26,8 @@ class SPOLoss:
         self.policy = policy
         self.critic = critic
         self.config = config
+        if config.ratio_epsilon <= 0:
+            raise ValueError("ratio epsilon must be positive")
 
     def __call__(self, sample: TensorBatch | SequenceBatch) -> LossOutput:
         batch, state, critic_state, reset, valid = self._unpack_sample(sample)
@@ -100,12 +102,11 @@ class SPOLoss:
         advantage: th.Tensor,
         ratio:     th.Tensor,
     ) -> th.Tensor:
-        return -1 * (
-            advantage * ratio - (
-                advantage.abs() 
-                / (2 * self.config.ratio_epsilon)
-                * (ratio - 1).square()
-            ) 
+        return -(
+            advantage * ratio
+            - advantage.abs()
+            / (2 * self.config.ratio_epsilon)
+            * (ratio - 1).square()
         ).mean()
 
     def _value_loss(
