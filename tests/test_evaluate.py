@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,10 @@ class Pool:
 
     def __init__(self, checkpoint_dir):
         self.checkpoint_dir = checkpoint_dir
+
+    @staticmethod
+    def timesteps(snapshot_id):
+        return snapshot_id
 
 
 class FixedOpponentEvaluatorTests(unittest.TestCase):
@@ -36,10 +41,16 @@ class FixedOpponentEvaluatorTests(unittest.TestCase):
             ]
 
             evaluator._recompute_ratings()
+            evaluator._write_ratings(0)
+
+            ratings = json.loads(
+                (checkpoint_dir / "trueskill_ratings.json").read_text()
+            )
 
         self.assertIn("anchor:Nexto", evaluator.snapshot_ratings)
         self.assertGreater(evaluator.snapshot_ratings[0].mu, 25.0)
         self.assertEqual(evaluator.rating_games["anchor:Nexto"], 1)
+        self.assertIn("Nexto", ratings["anchors"])
 
     def test_evaluation_waits_for_its_interval(self):
         with tempfile.TemporaryDirectory() as temporary:

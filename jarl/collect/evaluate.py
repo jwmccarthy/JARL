@@ -392,6 +392,18 @@ class TrueSkillEvaluator:
                 "last_evaluated": self.last_evaluated.get(snapshot_id),
             }
             for snapshot_id, rating in self.snapshot_ratings.items()
+            if not isinstance(snapshot_id, str)
+        }
+        anchors = {
+            snapshot_id.removeprefix("anchor:"): {
+                "mu":             rating.mu,
+                "sigma":          rating.sigma,
+                "skill":          rating.mu - 3.0 * rating.sigma,
+                "games":          self.rating_games[snapshot_id],
+                "last_evaluated": self.last_evaluated.get(snapshot_id),
+            }
+            for snapshot_id, rating in self.snapshot_ratings.items()
+            if isinstance(snapshot_id, str)
         }
         latest = snapshots[str(latest_id)] | {"snapshot_id": latest_id}
         self._write_json(
@@ -400,6 +412,7 @@ class TrueSkillEvaluator:
                 "current":       latest,
                 "latest":        latest,
                 "snapshots":     snapshots,
+                "anchors":       anchors,
                 "match_batches": len(self.history),
             },
         )
