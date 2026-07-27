@@ -174,6 +174,10 @@ class TrueSkillEvaluator:
                 )
                 self.last_evaluated[latest_id] = self.current_step
                 self.last_evaluated[anchor_id] = self.current_step
+                if not self.compare_snapshots:
+                    wins += int(outcomes.gt(0).sum())
+                    draws += int(outcomes.eq(0).sum())
+                    games += len(outcomes)
                 fixed_metrics[name] = {
                     "win_rate":  float(outcomes.gt(0).float().mean()),
                     "draw_rate": float(outcomes.eq(0).float().mean()),
