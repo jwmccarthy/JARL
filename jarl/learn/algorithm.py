@@ -15,6 +15,12 @@ class Algorithm:
 
         return metrics
 
+    def set_progress_callback(self, callback) -> None:
+        for stage in self.stages:
+            setter = getattr(stage, "set_progress_callback", None)
+            if setter is not None:
+                setter(callback)
+
 
 class TransformRollout:
     def __init__(

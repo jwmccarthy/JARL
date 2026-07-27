@@ -37,6 +37,7 @@ class Logger:
         self._progress_metric_specs = {}
         self._progress_metric_tasks = {}
         self._global_t_task = None
+        self._update_epoch_task = None
 
         self.register_progress_metric("Episode", "reward", format_spec=",.2f")
         self.register_progress_metric(
@@ -147,6 +148,11 @@ class Logger:
         self._progress = progress
         self._metrics = metrics
         self._global_t_task = global_t_task
+        self._update_epoch_task = progress.add_task(
+            "update_epochs",
+            total=1,
+            completed=1,
+        )
         self._progress_metric_tasks = {
             identifier: metrics.add_task(
                 label,
@@ -163,6 +169,7 @@ class Logger:
             self._progress = None
             self._metrics = None
             self._global_t_task = None
+            self._update_epoch_task = None
             self._progress_metric_tasks = {}
 
             if self.writer:
@@ -171,3 +178,25 @@ class Logger:
     def advance(self, timesteps: int) -> None:
         if self._progress is not None and self._global_t_task is not None:
             self._progress.advance(self._global_t_task, timesteps)
+
+    def start(self, epochs: int, section: str = "Update") -> None:
+        if self._progress is None or self._update_epoch_task is None:
+            return
+        self._progress.update(
+            self._update_epoch_task,
+            description=f"update_epochs ({section})",
+            total=epochs,
+            completed=0,
+        )
+
+    def epoch_finished(self) -> None:
+        if self._progress is not None and self._update_epoch_task is not None:
+            self._progress.advance(self._update_epoch_task)
+
+    def finish(self) -> None:
+        if self._progress is not None and self._update_epoch_task is not None:
+            task = self._progress.tasks[self._update_epoch_task]
+            self._progress.update(
+                self._update_epoch_task,
+                completed=task.total or task.completed,
+            )

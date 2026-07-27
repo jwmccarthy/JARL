@@ -12,6 +12,10 @@ class RolloutMinibatches:
 
         self.batch_size = batch_size
         self.epochs = epochs
+        self._epoch_callback = None
+
+    def set_epoch_callback(self, callback) -> None:
+        self._epoch_callback = callback
 
     def __call__(self, data: TensorBatch):
         if len(data.shape) < 2:
@@ -26,6 +30,8 @@ class RolloutMinibatches:
 
         for _ in range(self.epochs):
             yield from self._sample_epoch(flat)
+            if self._epoch_callback is not None:
+                self._epoch_callback()
 
     def _sample_epoch(self, data: TensorBatch):
         indices = th.randperm(len(data), device=data.device)
@@ -70,6 +76,10 @@ class RecurrentRolloutMinibatches:
         self.sequences_per_batch = sequences_per_batch
         self.epochs = epochs
         self.fields = fields
+        self._epoch_callback = None
+
+    def set_epoch_callback(self, callback) -> None:
+        self._epoch_callback = callback
 
     def __call__(self, data: TensorBatch):
         if "policy_state" not in data:
@@ -98,6 +108,8 @@ class RecurrentRolloutMinibatches:
         for _ in range(self.epochs):
             yield from self._sample_epoch(sequences, clean)
             yield from self._sample_epoch(sequences, resetting)
+            if self._epoch_callback is not None:
+                self._epoch_callback()
 
     def _select_fields(self, data: TensorBatch) -> TensorBatch:
         if self.fields is None:

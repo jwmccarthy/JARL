@@ -23,6 +23,9 @@ class Trainer:
         self.value_scheduler = value_scheduler
         self.update_callback = update_callback
         self.clock = Clock()
+        set_progress_callback = getattr(self.learner, "set_progress_callback", None)
+        if set_progress_callback is not None:
+            set_progress_callback(self.logger)
 
     def run(self, total_timesteps: int):
         if total_timesteps < 1:
