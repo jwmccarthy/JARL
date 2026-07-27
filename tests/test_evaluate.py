@@ -73,6 +73,8 @@ class FixedOpponentEvaluatorTests(unittest.TestCase):
 
             self.assertFalse(evaluator.ready(9))
             self.assertTrue(evaluator.ready(10))
+            self.assertFalse(evaluator.ready(19))
+            self.assertTrue(evaluator.ready(20))
 
 
 if __name__ == "__main__":

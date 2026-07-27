@@ -77,11 +77,7 @@ class TrueSkillEvaluator:
         if len(snapshot_ids) < 2 and not self.fixed_opponents:
             return False
 
-        ready = (
-            snapshot_ids[-1] != self.last_snapshot_id
-            and step >= self.next_evaluation
-        )
-        if not ready:
+        if step < self.next_evaluation:
             return False
 
         while self.next_evaluation <= step:
