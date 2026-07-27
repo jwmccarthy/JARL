@@ -71,6 +71,12 @@ class Critic(CompositeNet):
     ) -> tuple[th.Tensor, th.Tensor | None]:
         features = self.head(observation)
         if hasattr(self.body, "initial_state"):
+            if (
+                state is not None
+                and state.dtype != features.dtype
+                and th.is_autocast_enabled()
+            ):
+                state = state.to(features.dtype)
             return self.body(features, state, reset)
         if state is not None or reset is not None:
             raise ValueError("stateless critic body does not accept state")

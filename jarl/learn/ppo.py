@@ -14,6 +14,7 @@ class PPOConfig:
     value_coef:          float = 0.5
     entropy_coef:        float = 0.01
     normalize_advantage: bool = True
+    bf16:                bool = False
 
 
 class PPOLoss:
@@ -29,20 +30,44 @@ class PPOLoss:
 
     def __call__(self, sample: TensorBatch | SequenceBatch) -> LossOutput:
         batch, state, critic_state, reset, valid = self._unpack_sample(sample)
+        use_bf16 = self.config.bf16 and batch.device.type == "cuda"
 
-        evaluation = self.policy.evaluate_actions(
-            batch["observation"],
-            batch["action"],
-            state,
-            reset=reset,
-        )
-        value = evaluation.value
-        if value is None:
-            value = self.critic.evaluate_values(
-                batch["observation"],
-                critic_state,
-                reset=reset,
-            )
+        with th.autocast(
+            device_type=batch.device.type,
+            dtype=th.bfloat16,
+            enabled=use_bf16,
+        ):
+            if self._shares_trunk():
+                features, _ = self.policy.body_features(
+                    batch["observation"],
+                    state,
+                    reset,
+                )
+                evaluation = self.policy.evaluate_from_features(
+                    features,
+                    batch["observation"],
+                    batch["action"],
+                )
+                value = self.critic.value_from_features(features)
+            else:
+                evaluation = self.policy.evaluate_actions(
+                    batch["observation"],
+                    batch["action"],
+                    state,
+                    reset=reset,
+                )
+                value = evaluation.value
+                if value is None:
+                    value = self.critic.evaluate_values(
+                        batch["observation"],
+                        critic_state,
+                        reset=reset,
+                    )
+
+        # Keep PPO's ratios, reductions, and value loss in FP32.
+        evaluation.log_prob = evaluation.log_prob.float()
+        evaluation.entropy = evaluation.entropy.float()
+        value = value.float()
 
         advantage = self._normalize_advantage(batch["advantage"][valid])
         log_ratio = evaluation.log_prob[valid] - batch["old_log_prob"][valid]
@@ -68,6 +93,15 @@ class PPOLoss:
                 "entropy": entropy,
                 "approx_kl": approx_kl,
             },
+        )
+
+    def _shares_trunk(self) -> bool:
+        return (
+            self.policy.head is self.critic.head
+            and self.policy.body is self.critic.body
+            and hasattr(self.policy, "body_features")
+            and hasattr(self.policy, "evaluate_from_features")
+            and hasattr(self.critic, "value_from_features")
         )
 
     @staticmethod
