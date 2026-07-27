@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import torch
@@ -36,6 +37,24 @@ class ReportingTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "already registered"):
             logger.register_progress_metric("Episode", "reward")
+
+    def test_activity_replaces_the_secondary_progress_task(self):
+        logger = Logger()
+        progress = Mock()
+        progress.tasks = {4: SimpleNamespace(total=10, completed=3)}
+        logger._progress = progress
+        logger._activity_task = 4
+
+        logger.start_activity(10, "trueskill_matches")
+        logger.advance_activity(3)
+        logger.finish_activity()
+
+        self.assertEqual(
+            progress.update.call_args_list[0].kwargs,
+            {"description": "trueskill_matches", "total": 10, "completed": 0},
+        )
+        progress.advance.assert_called_once_with(4, 3)
+        self.assertEqual(progress.update.call_args_list[1].kwargs, {"completed": 10})
 
     def test_transform_rollout_reports_selected_learner_field(self):
         rollout = Rollout(

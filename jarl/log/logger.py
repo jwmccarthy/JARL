@@ -37,7 +37,7 @@ class Logger:
         self._progress_metric_specs = {}
         self._progress_metric_tasks = {}
         self._global_t_task = None
-        self._update_epoch_task = None
+        self._activity_task = None
 
         self.register_progress_metric("Episode", "reward", format_spec=",.2f")
         self.register_progress_metric(
@@ -148,8 +148,8 @@ class Logger:
         self._progress = progress
         self._metrics = metrics
         self._global_t_task = global_t_task
-        self._update_epoch_task = progress.add_task(
-            "update_epochs",
+        self._activity_task = progress.add_task(
+            "idle",
             total=1,
             completed=1,
         )
@@ -169,7 +169,7 @@ class Logger:
             self._progress = None
             self._metrics = None
             self._global_t_task = None
-            self._update_epoch_task = None
+            self._activity_task = None
             self._progress_metric_tasks = {}
 
             if self.writer:
@@ -179,24 +179,33 @@ class Logger:
         if self._progress is not None and self._global_t_task is not None:
             self._progress.advance(self._global_t_task, timesteps)
 
-    def start(self, epochs: int, section: str = "Update") -> None:
-        if self._progress is None or self._update_epoch_task is None:
+    def start_activity(self, total: int, description: str) -> None:
+        if self._progress is None or self._activity_task is None:
             return
         self._progress.update(
-            self._update_epoch_task,
-            description=f"update_epochs ({section})",
-            total=epochs,
+            self._activity_task,
+            description=description,
+            total=total,
             completed=0,
         )
 
-    def epoch_finished(self) -> None:
-        if self._progress is not None and self._update_epoch_task is not None:
-            self._progress.advance(self._update_epoch_task)
+    def advance_activity(self, amount: int = 1) -> None:
+        if self._progress is not None and self._activity_task is not None:
+            self._progress.advance(self._activity_task, amount)
 
-    def finish(self) -> None:
-        if self._progress is not None and self._update_epoch_task is not None:
-            task = self._progress.tasks[self._update_epoch_task]
+    def finish_activity(self) -> None:
+        if self._progress is not None and self._activity_task is not None:
+            task = self._progress.tasks[self._activity_task]
             self._progress.update(
-                self._update_epoch_task,
+                self._activity_task,
                 completed=task.total or task.completed,
             )
+
+    def start(self, epochs: int, section: str = "Update") -> None:
+        self.start_activity(epochs, f"update_epochs ({section})")
+
+    def epoch_finished(self) -> None:
+        self.advance_activity()
+
+    def finish(self) -> None:
+        self.finish_activity()

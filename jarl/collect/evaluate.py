@@ -22,6 +22,7 @@ class TrueSkillEvaluator:
         seed:             int,
         fixed_opponents: dict[str, object] | None = None,
         state_provider=None,
+        compare_snapshots: bool = True,
     ) -> None:
         if interval < 1 or num_matches < 1 or max_steps < 1 or opponents < 1:
             raise ValueError("TrueSkill settings must be positive")
@@ -50,6 +51,7 @@ class TrueSkillEvaluator:
         self.seed = seed
         self.fixed_opponents = fixed_opponents or {}
         self.state_provider = state_provider
+        self.compare_snapshots = compare_snapshots
         self.next_evaluation = interval
         self.current_step = 0
         self.evaluation_count = 0
@@ -77,7 +79,7 @@ class TrueSkillEvaluator:
 
         ready = (
             snapshot_ids[-1] != self.last_snapshot_id
-            or step >= self.next_evaluation
+            and step >= self.next_evaluation
         )
         if not ready:
             return False
@@ -104,8 +106,15 @@ class TrueSkillEvaluator:
                 )
 
         latest_id = snapshot_ids[-1]
-        opponent_ids = self._select_opponents(latest_id)
+        opponent_ids = (
+            self._select_opponents(latest_id) if self.compare_snapshots else ()
+        )
         latest = self.opponent_pool.policy(latest_id, self.policy.device)
+        matchups = len(opponent_ids) + len(self.fixed_opponents)
+        self.logger.start_activity(
+            2 * self.num_matches * matchups,
+            "trueskill_matches",
+        )
 
         wins = draws = games = 0
         fixed_metrics = {}
@@ -123,12 +132,11 @@ class TrueSkillEvaluator:
                     opponent_id, self.policy.device
                 )
 
-                outcomes = torch.cat(
-                    (
-                        self._play(latest, opponent),
-                        -self._play(opponent, latest),
-                    )
-                ).cpu()
+                left_outcomes = self._play(latest, opponent)
+                self.logger.advance_activity(len(left_outcomes))
+                right_outcomes = -self._play(opponent, latest)
+                self.logger.advance_activity(len(right_outcomes))
+                outcomes = torch.cat((left_outcomes, right_outcomes)).cpu()
 
                 self.history.append(
                     {
@@ -146,12 +154,11 @@ class TrueSkillEvaluator:
                 games += len(outcomes)
 
             for name, opponent in self.fixed_opponents.items():
-                outcomes = torch.cat(
-                    (
-                        self._play(latest, opponent),
-                        -self._play(opponent, latest),
-                    )
-                ).cpu()
+                left_outcomes = self._play(latest, opponent)
+                self.logger.advance_activity(len(left_outcomes))
+                right_outcomes = -self._play(opponent, latest)
+                self.logger.advance_activity(len(right_outcomes))
+                outcomes = torch.cat((left_outcomes, right_outcomes)).cpu()
                 anchor_id = f"anchor:{name}"
                 self.history.append(
                     {
@@ -168,6 +175,8 @@ class TrueSkillEvaluator:
                     "draw_rate": float(outcomes.eq(0).float().mean()),
                     "games":     len(outcomes),
                 }
+
+        self.logger.finish_activity()
 
         self.evaluation_count += 1
         self.last_snapshot_id = latest_id

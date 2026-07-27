@@ -41,6 +41,28 @@ class FixedOpponentEvaluatorTests(unittest.TestCase):
         self.assertGreater(evaluator.snapshot_ratings[0].mu, 25.0)
         self.assertEqual(evaluator.rating_games["anchor:Nexto"], 1)
 
+    def test_evaluation_waits_for_its_interval(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkpoint_dir = Path(temporary)
+            evaluator = TrueSkillEvaluator(
+                policy=type("Policy", (), {"device": "cpu"})(),
+                opponent_pool=Pool(checkpoint_dir),
+                env_factory=None,
+                logger=None,
+                checkpoint_dir=checkpoint_dir,
+                interval=10,
+                num_matches=1,
+                team_sizes=(1, 1),
+                max_steps=1,
+                opponents=1,
+                draw_probability=0.1,
+                seed=0,
+                fixed_opponents={"Nexto": object()},
+            )
+
+            self.assertFalse(evaluator.ready(9))
+            self.assertTrue(evaluator.ready(10))
+
 
 if __name__ == "__main__":
     unittest.main()
