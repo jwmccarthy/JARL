@@ -48,7 +48,7 @@ class RolloutMinibatches:
 class SequenceBatch:
     steps:               TensorBatch
     initial_state:       th.Tensor
-    reset:               th.Tensor
+    reset:               th.Tensor | None
     valid:               th.Tensor
     initial_critic_state: th.Tensor | None = None
 
@@ -106,8 +106,8 @@ class RecurrentRolloutMinibatches:
         resetting = eligible[has_reset[eligible]]
 
         for _ in range(self.epochs):
-            yield from self._sample_epoch(sequences, clean)
-            yield from self._sample_epoch(sequences, resetting)
+            yield from self._sample_epoch(sequences, clean, has_reset=False)
+            yield from self._sample_epoch(sequences, resetting, has_reset=True)
             if self._epoch_callback is not None:
                 self._epoch_callback()
 
@@ -181,6 +181,8 @@ class RecurrentRolloutMinibatches:
         self,
         sequences: dict[str, th.Tensor],
         eligible: th.Tensor,
+        *,
+        has_reset: bool,
     ):
         if not len(eligible):
             return
@@ -190,33 +192,41 @@ class RecurrentRolloutMinibatches:
         for left in range(0, len(indices), self.sequences_per_batch):
             selected = indices[left : left + self.sequences_per_batch]
             if len(selected):
-                yield self._build_batch(sequences, selected)
+                yield self._build_batch(sequences, selected, has_reset=has_reset)
 
     @staticmethod
     def _build_batch(
         sequences: dict[str, th.Tensor],
         selected: th.Tensor,
+        *,
+        has_reset: bool,
     ) -> SequenceBatch:
-        state = sequences["policy_state"][selected, 0]
+        state = sequences["policy_state"].index_select(0, selected)[:, 0]
         critic_state = sequences.get("critic_state")
 
         if critic_state is not None:
-            critic_state = critic_state[selected, 0]
+            critic_state = critic_state.index_select(0, selected)[:, 0]
 
         step_data = {
-            key: value[selected].swapaxes(0, 1)
+            # Gather directly into the time-major contiguous layout required by
+            # cuDNN RNNs instead of transposing a batch-major gathered tensor.
+            key: value.swapaxes(0, 1).index_select(1, selected)
             for key, value in sequences.items()
             if key not in ("policy_state", "critic_state")
         }
         steps = TensorBatch(step_data)
 
-        done = steps["terminated"] | steps["truncated"]
-        reset = th.zeros_like(done)
-        reset[1:] = done[:-1]
+        reset = None
+        if has_reset:
+            done = steps["terminated"] | steps["truncated"]
+            reset = th.zeros_like(done)
+            reset[1:] = done[:-1]
         valid = steps.get("learner_mask")
 
         if valid is None:
-            valid = th.ones_like(done)
+            valid = th.ones(
+                steps.shape[:2], dtype=th.bool, device=steps.device
+            )
 
         return SequenceBatch(
             steps=steps,
