@@ -262,6 +262,7 @@ class TrueSkillEvaluator:
         outcomes = torch.zeros(
             self.num_matches, dtype=torch.float32, device=self.policy.device
         )
+        completed_steps = 0
 
         for _ in range(self.max_steps):
             grouped = observation.view(
@@ -291,6 +292,7 @@ class TrueSkillEvaluator:
             ).flatten(0, 1)
 
             observation, reward, terminated, truncated, _ = self.env.step(action)
+            completed_steps += 1
             if on_step is not None:
                 on_step()
 
@@ -310,6 +312,8 @@ class TrueSkillEvaluator:
             if not active.any():
                 break
 
+        if on_step is not None and completed_steps < self.max_steps:
+            on_step(self.max_steps - completed_steps)
         return outcomes
 
     @staticmethod
