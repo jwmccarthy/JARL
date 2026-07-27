@@ -107,12 +107,13 @@ class TrueSkillEvaluator:
         )
         latest = self.opponent_pool.policy(latest_id, self.policy.device)
         matchups = len(opponent_ids) + len(self.fixed_opponents)
+        games = 2 * self.num_matches * matchups
         self.logger.start_activity(
             2 * self.max_steps * matchups,
-            f"trueskill_steps ({self.num_matches} matches)",
+            f"trueskill_steps ({games} games)",
         )
 
-        wins = draws = games = 0
+        wins = draws = completed_games = 0
         fixed_metrics = {}
         policy_device = torch.device(self.policy.device)
         devices = (
@@ -149,7 +150,7 @@ class TrueSkillEvaluator:
                 self.last_evaluated[opponent_id] = self.current_step
                 wins += int(outcomes.gt(0).sum())
                 draws += int(outcomes.eq(0).sum())
-                games += len(outcomes)
+                completed_games += len(outcomes)
 
             for name, opponent in self.fixed_opponents.items():
                 left_outcomes = self._play(
@@ -173,7 +174,7 @@ class TrueSkillEvaluator:
                 if not self.compare_snapshots:
                     wins += int(outcomes.gt(0).sum())
                     draws += int(outcomes.eq(0).sum())
-                    games += len(outcomes)
+                    completed_games += len(outcomes)
                 fixed_metrics[name] = {
                     "win_rate":  float(outcomes.gt(0).float().mean()),
                     "draw_rate": float(outcomes.eq(0).float().mean()),
@@ -191,10 +192,10 @@ class TrueSkillEvaluator:
                 "mu":          rating.mu,
                 "sigma":       rating.sigma,
                 "skill":       rating.mu - 3.0 * rating.sigma,
-                "games":       games,
+                "games":       completed_games,
                 "total_games": self.rating_games[latest_id],
-                "win_rate":    wins / games if games else 0.0,
-                "draw_rate":   draws / games if games else 0.0,
+                "win_rate":    wins / completed_games if completed_games else 0.0,
+                "draw_rate":   draws / completed_games if completed_games else 0.0,
                 "opponents":   len(opponent_ids),
                 "snapshot_id": latest_id,
                 "timesteps":   self.opponent_pool.timesteps(latest_id),
