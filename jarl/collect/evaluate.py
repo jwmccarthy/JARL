@@ -20,6 +20,8 @@ class TrueSkillEvaluator:
         opponents:        int,
         draw_probability: float,
         seed:             int,
+        fixed_opponents: dict[str, object] | None = None,
+        state_provider=None,
     ) -> None:
         if interval < 1 or num_matches < 1 or max_steps < 1 or opponents < 1:
             raise ValueError("TrueSkill settings must be positive")
@@ -46,6 +48,8 @@ class TrueSkillEvaluator:
         self.max_steps = max_steps
         self.opponents = opponents
         self.seed = seed
+        self.fixed_opponents = fixed_opponents or {}
+        self.state_provider = state_provider
         self.next_evaluation = interval
         self.current_step = 0
         self.evaluation_count = 0
@@ -65,7 +69,10 @@ class TrueSkillEvaluator:
         self.current_step = step
         snapshot_ids = self.opponent_pool.archive_ids
 
-        if len(snapshot_ids) < 2:
+        if not snapshot_ids:
+            return False
+
+        if len(snapshot_ids) < 2 and not self.fixed_opponents:
             return False
 
         ready = (
@@ -83,7 +90,7 @@ class TrueSkillEvaluator:
     @torch.no_grad()
     def run(self) -> None:
         snapshot_ids = self.opponent_pool.archive_ids
-        if len(snapshot_ids) < 2:
+        if not snapshot_ids:
             return
 
         if self.env is None:
@@ -101,6 +108,7 @@ class TrueSkillEvaluator:
         latest = self.opponent_pool.policy(latest_id, self.policy.device)
 
         wins = draws = games = 0
+        fixed_metrics = {}
         policy_device = torch.device(self.policy.device)
         devices = (
             [policy_device.index or 0]
@@ -137,27 +145,54 @@ class TrueSkillEvaluator:
                 draws += int(outcomes.eq(0).sum())
                 games += len(outcomes)
 
+            for name, opponent in self.fixed_opponents.items():
+                outcomes = torch.cat(
+                    (
+                        self._play(latest, opponent),
+                        -self._play(opponent, latest),
+                    )
+                ).cpu()
+                anchor_id = f"anchor:{name}"
+                self.history.append(
+                    {
+                        "step":     self.current_step,
+                        "left":     latest_id,
+                        "right":    anchor_id,
+                        "outcomes": outcomes.sign().to(torch.int8).tolist(),
+                    }
+                )
+                self.last_evaluated[latest_id] = self.current_step
+                self.last_evaluated[anchor_id] = self.current_step
+                fixed_metrics[name] = {
+                    "win_rate":  float(outcomes.gt(0).float().mean()),
+                    "draw_rate": float(outcomes.eq(0).float().mean()),
+                    "games":     len(outcomes),
+                }
+
         self.evaluation_count += 1
         self.last_snapshot_id = latest_id
         self._recompute_ratings()
         rating = self.snapshot_ratings[latest_id]
-        self.logger.update(
-            {
-                "TrueSkill": {
-                    "mu":          rating.mu,
-                    "sigma":       rating.sigma,
-                    "skill":       rating.mu - 3.0 * rating.sigma,
-                    "games":       games,
-                    "total_games": self.rating_games[latest_id],
-                    "win_rate":    wins / games,
-                    "draw_rate":   draws / games,
-                    "opponents":   len(opponent_ids),
-                    "snapshot_id": latest_id,
-                    "timesteps":   self.opponent_pool.timesteps(latest_id),
-                }
-            },
-            step=self.current_step,
-        )
+        metrics = {
+            "TrueSkill": {
+                "mu":          rating.mu,
+                "sigma":       rating.sigma,
+                "skill":       rating.mu - 3.0 * rating.sigma,
+                "games":       games,
+                "total_games": self.rating_games[latest_id],
+                "win_rate":    wins / games if games else 0.0,
+                "draw_rate":   draws / games if games else 0.0,
+                "opponents":   len(opponent_ids),
+                "snapshot_id": latest_id,
+                "timesteps":   self.opponent_pool.timesteps(latest_id),
+            }
+        }
+        for name, values in fixed_metrics.items():
+            anchor = self.snapshot_ratings[f"anchor:{name}"]
+            metrics[f"Benchmark/{name}"] = values | {
+                "skill": rating.mu - anchor.mu,
+            }
+        self.logger.update(metrics, step=self.current_step)
         self._write_history()
         self._write_ratings(latest_id)
 
@@ -217,8 +252,12 @@ class TrueSkillEvaluator:
             )
             blue = grouped[:, : self.n_blue].flatten(0, 1)
             orange = grouped[:, self.n_blue :].flatten(0, 1)
-            blue_output = blue_policy.act(blue, blue_state)
-            orange_output = orange_policy.act(orange, orange_state)
+            use_raw = hasattr(blue_policy, "act_from_raw") or hasattr(
+                orange_policy, "act_from_raw"
+            )
+            raw = self.state_provider(self.env) if use_raw else None
+            blue_output = self._act(blue_policy, blue, blue_state, raw, 0)
+            orange_output = self._act(orange_policy, orange, orange_state, raw, 1)
             blue_state = blue_output.next_state
             orange_state = orange_output.next_state
 
@@ -254,19 +293,37 @@ class TrueSkillEvaluator:
 
         return outcomes
 
+    @staticmethod
+    def _act(policy, observation, state, raw, car_index):
+        act_from_raw = getattr(policy, "act_from_raw", None)
+        if act_from_raw is not None:
+            if raw is None:
+                raise ValueError("raw-state policy requires an evaluation state provider")
+            return act_from_raw(raw, state, car_index)
+        return policy.act(observation, state)
+
     def _recompute_ratings(self) -> None:
         self.snapshot_ratings = {
             snapshot_id: self.rating_system.create_rating()
             for snapshot_id in self.opponent_pool.archive_ids
         }
+        self.snapshot_ratings.update(
+            {
+                f"anchor:{name}": self.rating_system.create_rating()
+                for name in self.fixed_opponents
+            }
+        )
         self.rating_games = {
             snapshot_id: 0 for snapshot_id in self.opponent_pool.archive_ids
         }
+        self.rating_games.update(
+            {f"anchor:{name}": 0 for name in self.fixed_opponents}
+        )
         self.last_evaluated = {}
 
         for match in self.history:
-            left_id = int(match["left"])
-            right_id = int(match["right"])
+            left_id = match["left"]
+            right_id = match["right"]
 
             if (
                 left_id not in self.snapshot_ratings
