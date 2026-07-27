@@ -195,10 +195,11 @@ class Logger:
 
     def finish_activity(self) -> None:
         if self._progress is not None and self._activity_task is not None:
-            task = self._progress.tasks[self._activity_task]
             self._progress.update(
                 self._activity_task,
-                completed=task.total or task.completed,
+                description="idle",
+                total=1,
+                completed=0,
             )
 
     def start(self, epochs: int, section: str = "Update") -> None:

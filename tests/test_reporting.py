@@ -54,7 +54,10 @@ class ReportingTests(unittest.TestCase):
             {"description": "trueskill_matches", "total": 10, "completed": 0},
         )
         progress.advance.assert_called_once_with(4, 3)
-        self.assertEqual(progress.update.call_args_list[1].kwargs, {"completed": 10})
+        self.assertEqual(
+            progress.update.call_args_list[1].kwargs,
+            {"description": "idle", "total": 1, "completed": 0},
+        )
 
     def test_transform_rollout_reports_selected_learner_field(self):
         rollout = Rollout(
