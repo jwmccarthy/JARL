@@ -323,9 +323,10 @@ class TrueSkillEvaluator:
         return policy.act(observation, state)
 
     def _recompute_ratings(self) -> None:
+        archive_ids = self.opponent_pool.archive_ids
         self.snapshot_ratings = {
             snapshot_id: self.rating_system.create_rating()
-            for snapshot_id in self.opponent_pool.archive_ids
+            for snapshot_id in archive_ids
         }
         self.snapshot_ratings.update(
             {
@@ -340,6 +341,8 @@ class TrueSkillEvaluator:
             {f"anchor:{name}": 0 for name in self.fixed_opponents}
         )
         self.last_evaluated = {}
+        pinned_ids = set(archive_ids[:1])
+        pinned_ids.update(f"anchor:{name}" for name in self.fixed_opponents)
 
         for match in self.history:
             left_id = match["left"]
@@ -355,6 +358,8 @@ class TrueSkillEvaluator:
             right = self.snapshot_ratings[right_id]
 
             for outcome in match["outcomes"]:
+                previous_left = left
+                previous_right = right
                 if outcome > 0:
                     left, right = self.rating_system.rate_1vs1(left, right)
                 elif outcome < 0:
@@ -363,6 +368,10 @@ class TrueSkillEvaluator:
                     left, right = self.rating_system.rate_1vs1(
                         left, right, drawn=True
                     )
+                if left_id in pinned_ids:
+                    left = previous_left
+                if right_id in pinned_ids:
+                    right = previous_right
                 self.rating_games[left_id] += 1
                 self.rating_games[right_id] += 1
 

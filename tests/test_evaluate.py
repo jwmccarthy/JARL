@@ -7,7 +7,7 @@ from jarl.collect.evaluate import TrueSkillEvaluator
 
 
 class Pool:
-    archive_ids = (0,)
+    archive_ids = (0, 1)
 
     def __init__(self, checkpoint_dir):
         self.checkpoint_dir = checkpoint_dir
@@ -37,18 +37,21 @@ class FixedOpponentEvaluatorTests(unittest.TestCase):
                 fixed_opponents={"Nexto": object()},
             )
             evaluator.history = [
-                {"step": 1, "left": 0, "right": "anchor:Nexto", "outcomes": [1]}
+                {"step": 1, "left": 1, "right": "anchor:Nexto", "outcomes": [1]},
+                {"step": 2, "left": 1, "right": 0, "outcomes": [1]},
             ]
 
             evaluator._recompute_ratings()
-            evaluator._write_ratings(0)
+            evaluator._write_ratings(1)
 
             ratings = json.loads(
                 (checkpoint_dir / "trueskill_ratings.json").read_text()
             )
 
         self.assertIn("anchor:Nexto", evaluator.snapshot_ratings)
-        self.assertGreater(evaluator.snapshot_ratings[0].mu, 25.0)
+        self.assertEqual(evaluator.snapshot_ratings[0].mu, 25.0)
+        self.assertEqual(evaluator.snapshot_ratings["anchor:Nexto"].mu, 25.0)
+        self.assertGreater(evaluator.snapshot_ratings[1].mu, 25.0)
         self.assertEqual(evaluator.rating_games["anchor:Nexto"], 1)
         self.assertIn("Nexto", ratings["anchors"])
 
