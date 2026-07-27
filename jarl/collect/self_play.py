@@ -1,6 +1,7 @@
 import copy
 import random
 from collections import OrderedDict
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 import torch as th
@@ -48,6 +49,12 @@ class SnapshotPool:
         self._snapshots = OrderedDict()
         self._timesteps = {}
         self._checkpoint_paths = {}
+        self._checkpoint_writer = (
+            ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarl-snapshot")
+            if checkpoint_dir is not None
+            else None
+        )
+        self._checkpoint_writes: dict[int, Future] = {}
         self._active = OrderedDict()
         self._next_id = 0
         self._last_snapshot = 0
@@ -70,7 +77,10 @@ class SnapshotPool:
         if self._next_id and timesteps <= self._last_snapshot:
             raise ValueError("snapshot timesteps must be strictly increasing")
 
-        snapshot = copy.deepcopy(policy).to("cpu").eval().requires_grad_(False)
+        self._reap_checkpoint_writes()
+        snapshot = copy.deepcopy(policy).eval().requires_grad_(False)
+        if self.checkpoint_dir is None:
+            snapshot.to("cpu")
         snapshot_id = self._next_id
         self._next_id += 1
         self._snapshots[snapshot_id] = snapshot
@@ -80,12 +90,13 @@ class SnapshotPool:
         if self.checkpoint_dir is not None:
             checkpoint_path = self.checkpoint_dir / f"policy_{timesteps:012d}.pt"
             temporary_path = checkpoint_path.with_suffix(".pt.tmp")
-            th.save(
+            self._checkpoint_paths[snapshot_id] = checkpoint_path
+            self._checkpoint_writes[snapshot_id] = self._checkpoint_writer.submit(
+                self._write_checkpoint,
                 snapshot.state_dict(),
                 temporary_path,
+                checkpoint_path,
             )
-            temporary_path.replace(checkpoint_path)
-            self._checkpoint_paths[snapshot_id] = checkpoint_path
 
         protected = set(protected_ids) | {next(iter(self._snapshots)), snapshot_id}
         while len(self._snapshots) > self.max_size:
@@ -99,6 +110,22 @@ class SnapshotPool:
             self._active.pop(removed_id, None)
 
         return snapshot_id
+
+    @staticmethod
+    def _write_checkpoint(state, temporary_path: Path, checkpoint_path: Path) -> None:
+        th.save(state, temporary_path)
+        temporary_path.replace(checkpoint_path)
+
+    def _reap_checkpoint_writes(self) -> None:
+        for snapshot_id, write in tuple(self._checkpoint_writes.items()):
+            if write.done():
+                write.result()
+                del self._checkpoint_writes[snapshot_id]
+
+    def close(self) -> None:
+        if self._checkpoint_writer is not None:
+            self._checkpoint_writer.shutdown(wait=True)
+            self._reap_checkpoint_writes()
 
     def maybe_add(
         self,
@@ -192,6 +219,9 @@ class SnapshotPool:
             checkpoint_path = self._checkpoint_paths.get(snapshot_id)
             if checkpoint_path is None:
                 raise KeyError(f"snapshot {snapshot_id} is no longer available")
+            write = self._checkpoint_writes.pop(snapshot_id, None)
+            if write is not None:
+                write.result()
 
             policy = copy.deepcopy(next(iter(self._snapshots.values())))
             policy.load_state_dict(
@@ -428,6 +458,9 @@ class SelfPlayRunner:
         ):
             historical_ids = self.opponent_pool.select_ids(self.historical_policies)
             self.matchmaker.set_historical_ids(historical_ids)
+
+    def close(self) -> None:
+        self.opponent_pool.close()
 
     def _act(self, observation: th.Tensor) -> PolicyOutput:
         learner_mask = self.matchmaker.learner_mask
