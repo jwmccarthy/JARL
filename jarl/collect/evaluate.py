@@ -112,8 +112,8 @@ class TrueSkillEvaluator:
         latest = self.opponent_pool.policy(latest_id, self.policy.device)
         matchups = len(opponent_ids) + len(self.fixed_opponents)
         self.logger.start_activity(
-            2 * self.num_matches * matchups,
-            "trueskill_matches",
+            2 * self.max_steps * matchups,
+            f"trueskill_steps ({self.num_matches} matches)",
         )
 
         wins = draws = games = 0
@@ -132,10 +132,12 @@ class TrueSkillEvaluator:
                     opponent_id, self.policy.device
                 )
 
-                left_outcomes = self._play(latest, opponent)
-                self.logger.advance_activity(len(left_outcomes))
-                right_outcomes = -self._play(opponent, latest)
-                self.logger.advance_activity(len(right_outcomes))
+                left_outcomes = self._play(
+                    latest, opponent, self.logger.advance_activity
+                )
+                right_outcomes = -self._play(
+                    opponent, latest, self.logger.advance_activity
+                )
                 outcomes = torch.cat((left_outcomes, right_outcomes)).cpu()
 
                 self.history.append(
@@ -154,10 +156,12 @@ class TrueSkillEvaluator:
                 games += len(outcomes)
 
             for name, opponent in self.fixed_opponents.items():
-                left_outcomes = self._play(latest, opponent)
-                self.logger.advance_activity(len(left_outcomes))
-                right_outcomes = -self._play(opponent, latest)
-                self.logger.advance_activity(len(right_outcomes))
+                left_outcomes = self._play(
+                    latest, opponent, self.logger.advance_activity
+                )
+                right_outcomes = -self._play(
+                    opponent, latest, self.logger.advance_activity
+                )
                 outcomes = torch.cat((left_outcomes, right_outcomes)).cpu()
                 anchor_id = f"anchor:{name}"
                 self.history.append(
@@ -242,7 +246,7 @@ class TrueSkillEvaluator:
             )
         return tuple(selected)
 
-    def _play(self, blue_policy, orange_policy) -> torch.Tensor:
+    def _play(self, blue_policy, orange_policy, on_step=None) -> torch.Tensor:
         observation = self.env.reset()
         blue_state = blue_policy.initial_state(self.num_matches * self.n_blue)
         orange_state = orange_policy.initial_state(
@@ -283,6 +287,8 @@ class TrueSkillEvaluator:
             ).flatten(0, 1)
 
             observation, reward, terminated, truncated, _ = self.env.step(action)
+            if on_step is not None:
+                on_step()
 
             done = (terminated | truncated).view(
                 self.num_matches, self.players_per_match
