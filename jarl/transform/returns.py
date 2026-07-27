@@ -4,16 +4,22 @@ from jarl.data.batch import TensorBatch
 from jarl.transform.base import PrepareContext
 
 
-def _discounted_suffix_sum_kernel(
-    value: th.Tensor,
+def discounted_suffix_sum(
+    value:     th.Tensor,
     continues: th.Tensor,
-    discount: th.Tensor,
+    discount:  float,
 ) -> th.Tensor:
-    """Vectorized reverse segmented discounted sum for torch.compile."""
+    if value.shape != continues.shape:
+        raise ValueError("value and continuation masks must have matching shapes")
+    if not 0.0 <= discount <= 1.0:
+        raise ValueError("discount must be between zero and one")
+    if discount == 0.0:
+        return value.clone()
+
     time = len(value)
     shape = (time,) + (1,) * (value.ndim - 1)
     powers = th.pow(
-        discount,
+        th.as_tensor(discount, dtype=value.dtype, device=value.device),
         th.arange(time, dtype=value.dtype, device=value.device),
     ).view(shape)
     weighted = value * powers
@@ -30,66 +36,6 @@ def _discounted_suffix_sum_kernel(
     after_segment = padded.gather(0, segment_end + 1)
 
     return (suffix - after_segment) / powers
-
-
-_compiled_discounted_suffix_sum = None
-_compile_failed = False
-
-
-def _cuda_discounted_suffix_sum(
-    value: th.Tensor,
-    continues: th.Tensor,
-    discount: float,
-) -> th.Tensor:
-    global _compiled_discounted_suffix_sum, _compile_failed
-
-    if _compiled_discounted_suffix_sum is None and not _compile_failed:
-        try:
-            _compiled_discounted_suffix_sum = th.compile(
-                _discounted_suffix_sum_kernel,
-                fullgraph=True,
-            )
-        except Exception:
-            _compile_failed = True
-
-    discount_tensor = th.tensor(
-        discount,
-        dtype=value.dtype,
-        device=value.device,
-    )
-    if _compiled_discounted_suffix_sum is not None:
-        try:
-            return _compiled_discounted_suffix_sum(
-                value,
-                continues,
-                discount_tensor,
-            )
-        except Exception:
-            # Keep GAE available when compilation is unsupported on a backend.
-            _compiled_discounted_suffix_sum = None
-            _compile_failed = True
-    return _discounted_suffix_sum_kernel(value, continues, discount_tensor)
-
-
-def discounted_suffix_sum(
-    value:     th.Tensor,
-    continues: th.Tensor,
-    discount:  float,
-) -> th.Tensor:
-    if value.shape != continues.shape:
-        raise ValueError("value and continuation masks must have matching shapes")
-    if not 0.0 <= discount <= 1.0:
-        raise ValueError("discount must be between zero and one")
-    if discount == 0.0:
-        return value.clone()
-
-    if value.is_cuda:
-        return _cuda_discounted_suffix_sum(value, continues, discount)
-    return _discounted_suffix_sum_kernel(
-        value,
-        continues,
-        th.as_tensor(discount, dtype=value.dtype, device=value.device),
-    )
 
 
 class GAE:

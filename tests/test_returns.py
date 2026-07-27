@@ -22,7 +22,7 @@ class DiscountedSuffixSumTests(unittest.TestCase):
         )
 
     @unittest.skipUnless(torch.cuda.is_available(), "requires CUDA")
-    def test_cuda_fast_path_matches_cpu(self):
+    def test_cuda_matches_cpu(self):
         value = torch.randn(32, 64)
         continues = torch.rand(32, 64) > 0.1
 
