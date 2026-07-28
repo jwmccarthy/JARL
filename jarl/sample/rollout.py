@@ -106,8 +106,7 @@ class RecurrentRolloutMinibatches:
         resetting = eligible[has_reset[eligible]]
 
         for _ in range(self.epochs):
-            yield from self._sample_epoch(sequences, clean, has_reset=False)
-            yield from self._sample_epoch(sequences, resetting, has_reset=True)
+            yield from self._sample_epoch(sequences, clean, resetting)
             if self._epoch_callback is not None:
                 self._epoch_callback()
 
@@ -180,19 +179,44 @@ class RecurrentRolloutMinibatches:
     def _sample_epoch(
         self,
         sequences: dict[str, th.Tensor],
-        eligible: th.Tensor,
-        *,
-        has_reset: bool,
+        clean: th.Tensor,
+        resetting: th.Tensor,
     ):
-        if not len(eligible):
-            return
         device = next(iter(sequences.values())).device
-        indices = eligible[th.randperm(len(eligible), device=device)]
+        clean = clean[th.randperm(len(clean), device=device)]
 
-        for left in range(0, len(indices), self.sequences_per_batch):
-            selected = indices[left : left + self.sequences_per_batch]
-            if len(selected):
-                yield self._build_batch(sequences, selected, has_reset=has_reset)
+        # Keep every optimizer batch near the requested size instead of giving
+        # a small reset group or final remainder the weight of a full batch.
+        sequence_count = len(clean) + len(resetting)
+        batch_count = (sequence_count + self.sequences_per_batch - 1) // (
+            self.sequences_per_batch
+        )
+        small_batch, larger_batches = divmod(sequence_count, batch_count)
+        batch_sizes = [
+            small_batch + (batch < larger_batches)
+            for batch in range(batch_count)
+        ]
+
+        if not len(resetting):
+            left = 0
+            for size in batch_sizes:
+                selected = clean[left : left + size]
+                yield self._build_batch(sequences, selected, has_reset=False)
+                left += size
+            return
+
+        resetting = resetting[th.randperm(len(resetting), device=device)]
+        indices = th.cat((resetting, clean))
+        batches = []
+        left = 0
+        for size in batch_sizes:
+            right = left + size
+            batches.append((indices[left:right], left < len(resetting)))
+            left = right
+
+        for batch in th.randperm(len(batches), device=device).tolist():
+            selected, has_reset = batches[batch]
+            yield self._build_batch(sequences, selected, has_reset=has_reset)
 
     @staticmethod
     def _build_batch(

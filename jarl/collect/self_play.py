@@ -98,12 +98,12 @@ class SnapshotPool:
                 checkpoint_path,
             )
 
-        protected = set(protected_ids) | {next(iter(self._snapshots)), snapshot_id}
+        protected = set(protected_ids) | {snapshot_id}
         while len(self._snapshots) > self.max_size:
             removable = [key for key in self._snapshots if key not in protected]
             if not removable:
                 break
-            removed_id = min(removable, key=self._retention_cost)
+            removed_id = removable[0]
             self._snapshots.pop(removed_id)
             if self.checkpoint_dir is None:
                 self._timesteps.pop(removed_id)
@@ -144,65 +144,39 @@ class SnapshotPool:
         return True
 
     def sample_ids(self, count: int) -> tuple[int, ...]:
+        """Sample without replacement, weighting newer snapshots by rank."""
         if count < 1:
             raise ValueError("historical policy count must be positive")
-        ids = list(self._snapshots)
-        return tuple(self._random.sample(ids, min(count, len(ids))))
+        ids = self._opponent_candidates()
+        selected = []
+
+        while ids and len(selected) < count:
+            # Linear rank weights favor recent policies without making older
+            # active opponents unreachable.
+            index = self._random.choices(
+                range(len(ids)), weights=range(1, len(ids) + 1), k=1
+            )[0]
+            selected.append(ids.pop(index))
+        return tuple(selected)
 
     def select_ids(self, count: int) -> tuple[int, ...]:
-        """Select anchors spanning the retained training history."""
+        """Select the most recent policies for the active opponent window."""
         if count < 1:
             raise ValueError("historical policy count must be positive")
 
+        ids = self._opponent_candidates()
+        return tuple(ids[-count:])
+
+    def _opponent_candidates(self) -> list[int]:
         ids = list(self._snapshots)
-
-        if count >= len(ids):
-            return tuple(ids)
-        if count == 1:
-            return (ids[-1],)
-
-        selected = {ids[0]}
-        selected.add(ids[-1])
-
-        while len(selected) < count:
-            candidates = [
-                snapshot_id for snapshot_id in ids if snapshot_id not in selected
-            ]
-            best = max(
-                candidates,
-                key=lambda snapshot_id: self._selection_priority(
-                    snapshot_id, selected
-                ),
-            )
-            selected.add(best)
-
-        return tuple(snapshot_id for snapshot_id in ids if snapshot_id in selected)
+        # Snapshot zero remains available in a disk-backed evaluation archive,
+        # but stops occupying the training pool after a trained policy exists.
+        return ids[1:] if ids and ids[0] == 0 and len(ids) > 1 else ids
 
     def timesteps(self, snapshot_id: int) -> int:
         if snapshot_id not in self._timesteps:
             raise KeyError(f"unknown snapshot {snapshot_id}")
         return self._timesteps[snapshot_id]
-
-    def _selection_priority(
-        self,
-        snapshot_id: int,
-        selected:    set[int],
-    ) -> tuple[int, int]:
-        timestep = self._timesteps[snapshot_id]
-        distance = min(
-            abs(timestep - self._timesteps[selected_id])
-            for selected_id in selected
-        )
-        return distance, timestep
-
-    def _retention_cost(self, removed_id: int) -> tuple[int, int, int]:
-        remaining = [
-            self._timesteps[snapshot_id]
-            for snapshot_id in self._snapshots
-            if snapshot_id != removed_id
-        ]
-        gaps = [right - left for left, right in zip(remaining, remaining[1:])]
-        return max(gaps, default=0), sum(gap * gap for gap in gaps), removed_id
 
     def policy(self, snapshot_id: int, device: th.device | str):
         if snapshot_id not in self._timesteps:
@@ -263,6 +237,12 @@ class SelfPlayMatchmaker:
         self._historical_ids = th.as_tensor(
             historical_ids, dtype=th.int64, device=self.device
         )
+        self._historical_weights = th.arange(
+            1,
+            len(historical_ids) + 1,
+            dtype=th.float32,
+            device=self.device,
+        )
         self._generator = th.Generator(device=self.device).manual_seed(seed)
         self.learner_mask = th.ones(self.n_envs, dtype=th.bool, device=self.device)
         self.opponent_ids = th.full(
@@ -276,6 +256,12 @@ class SelfPlayMatchmaker:
             raise ValueError("historical self-play requires at least one snapshot")
         self._historical_ids = th.as_tensor(
             historical_ids, dtype=th.int64, device=self.device
+        )
+        self._historical_weights = th.arange(
+            1,
+            len(historical_ids) + 1,
+            dtype=th.float32,
+            device=self.device,
         )
 
     @property
@@ -318,12 +304,13 @@ class SelfPlayMatchmaker:
             generator=self._generator,
             device=self.device,
         )
-        selected = th.randint(
-            0,
-            len(self._historical_ids),
-            (len(historical_matches),),
+        # IDs are chronological; linear rank weights give recent snapshots
+        # proportionally more matches while retaining coverage of older ones.
+        selected = th.multinomial(
+            self._historical_weights,
+            len(historical_matches),
+            replacement=True,
             generator=self._generator,
-            device=self.device,
         )
         snapshot_ids = self._historical_ids[selected]
 
