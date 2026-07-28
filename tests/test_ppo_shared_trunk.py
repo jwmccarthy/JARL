@@ -38,6 +38,31 @@ class SharedCritic:
         raise AssertionError("shared evaluation should use the shared features")
 
 
+class FactorPolicy:
+    head = object()
+    body = object()
+    action_shape = (2,)
+    sizes = (2, 3)
+
+    def evaluate_actions(self, observation, action, state, reset=None):
+        factor_entropy = torch.tensor(
+            [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6], [0.7, 0.8]]
+        )
+        return Evaluation(
+            log_prob=torch.zeros(4),
+            entropy=factor_entropy.sum(dim=-1),
+            extras={"factor_entropy": factor_entropy},
+        )
+
+
+class FactorCritic:
+    head = object()
+    body = object()
+
+    def evaluate_values(self, observation, state, reset=None):
+        return torch.zeros(4)
+
+
 class SharedTrunkPPOLossTests(unittest.TestCase):
     def test_shared_trunk_is_evaluated_once(self):
         trunk = torch.nn.Linear(3, 2)
@@ -61,6 +86,29 @@ class SharedTrunkPPOLossTests(unittest.TestCase):
 
         self.assertEqual(policy.feature_calls, 1)
         self.assertIsNotNone(trunk.weight.grad)
+
+    def test_factor_entropy_and_action_rates_are_reported(self):
+        batch = TensorBatch(
+            {
+                "observation": torch.zeros(4, 1),
+                "action": torch.tensor([[0, 0], [1, 1], [1, 2], [0, 2]]),
+                "advantage": torch.arange(4, dtype=torch.float32),
+                "old_log_prob": torch.zeros(4),
+                "baseline_value": torch.zeros(4),
+                "returns": torch.zeros(4),
+            }
+        )
+
+        output = PPOLoss(
+            FactorPolicy(),
+            FactorCritic(),
+            PPOConfig(action_names=("first", "second")),
+        )(batch)
+
+        self.assertAlmostEqual(output.metrics["entropy_first"].item(), 0.4)
+        self.assertAlmostEqual(output.metrics["entropy_second"].item(), 0.5)
+        self.assertAlmostEqual(output.metrics["action_first_1_rate"].item(), 0.5)
+        self.assertAlmostEqual(output.metrics["action_second_2_rate"].item(), 0.5)
 
 
 if __name__ == "__main__":

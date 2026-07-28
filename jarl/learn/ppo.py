@@ -15,6 +15,7 @@ class PPOConfig:
     entropy_coef:        float = 0.01
     normalize_advantage: bool = True
     bf16:                bool = False
+    action_names:        tuple[str, ...] | None = None
 
 
 class PPOLoss:
@@ -85,15 +86,33 @@ class PPOLoss:
         with th.no_grad():
             approx_kl = ((ratio - 1) - log_ratio).mean()
 
-        return LossOutput(
-            loss,
-            {
-                "policy_loss": policy_loss,
-                "critic_loss": value_loss,
-                "entropy": entropy,
-                "approx_kl": approx_kl,
-            },
-        )
+        metrics = {
+            "policy_loss": policy_loss,
+            "critic_loss": value_loss,
+            "entropy": entropy,
+            "approx_kl": approx_kl,
+        }
+        factor_entropy = evaluation.extras.get("factor_entropy")
+        if factor_entropy is not None:
+            action_shape = len(self.policy.action_shape)
+            action = batch["action"].reshape(
+                *batch["action"].shape[:-action_shape], -1
+            )
+            if factor_entropy.shape[:-1] != valid.shape:
+                raise ValueError("factor entropy shape does not match PPO validity mask")
+            names = self.config.action_names or tuple(
+                str(index) for index in range(factor_entropy.shape[-1])
+            )
+            if len(names) != factor_entropy.shape[-1]:
+                raise ValueError("action names do not match policy action factors")
+            for index, name in enumerate(names):
+                metrics[f"entropy_{name}"] = factor_entropy[..., index][valid].mean()
+                for value in range(self.policy.sizes[index]):
+                    metrics[f"action_{name}_{value}_rate"] = (
+                        action[..., index][valid].eq(value).float().mean()
+                    )
+
+        return LossOutput(loss, metrics)
 
     def _shares_trunk(self) -> bool:
         return (

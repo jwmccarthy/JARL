@@ -239,12 +239,17 @@ class MultiCategoricalPolicy(Policy):
     ) -> Evaluation:
         logits = self.foot(features)
         distributions = self._grouped_distributions(logits, observation)
+        factor_entropy = th.empty(
+            (*logits.shape[:-1], len(self.sizes)),
+            dtype=logits.dtype,
+            device=logits.device,
+        )
+        for indices, distribution in distributions:
+            factor_entropy[..., list(indices)] = distribution.entropy()
         return Evaluation(
             log_prob=self._grouped_logprob(distributions, action),
-            entropy=sum(
-                distribution.entropy().sum(dim=-1)
-                for _, distribution in distributions
-            ),
+            entropy=factor_entropy.sum(dim=-1),
+            extras={"factor_entropy": factor_entropy},
         )
 
     def _grouped_distributions(
