@@ -45,18 +45,18 @@ class ReportingTests(unittest.TestCase):
         logger._progress = progress
         logger._activity_task = 4
 
-        logger.start_activity(10, "trueskill_matches")
+        logger.start_activity(10, "eval")
         logger.advance_activity(3)
         logger.finish_activity()
 
         self.assertEqual(
-            progress.update.call_args_list[0].kwargs,
-            {"description": "trueskill_matches", "total": 10, "completed": 0},
+            progress.reset.call_args_list[0].kwargs,
+            {"description": "eval", "total": 10, "completed": 0},
         )
         progress.advance.assert_called_once_with(4, 3)
         self.assertEqual(
-            progress.update.call_args_list[1].kwargs,
-            {"description": "idle", "total": 1, "completed": 0},
+            progress.reset.call_args_list[1].kwargs,
+            {"description": "idle", "total": 1, "completed": 0, "start": False},
         )
 
     def test_transform_rollout_reports_selected_learner_field(self):

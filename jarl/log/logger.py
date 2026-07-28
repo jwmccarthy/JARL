@@ -151,7 +151,8 @@ class Logger:
         self._activity_task = progress.add_task(
             "idle",
             total=1,
-            completed=1,
+            completed=0,
+            start=False,
         )
         self._progress_metric_tasks = {
             identifier: metrics.add_task(
@@ -182,7 +183,7 @@ class Logger:
     def start_activity(self, total: int, description: str) -> None:
         if self._progress is None or self._activity_task is None:
             return
-        self._progress.update(
+        self._progress.reset(
             self._activity_task,
             description=description,
             total=total,
@@ -195,15 +196,16 @@ class Logger:
 
     def finish_activity(self) -> None:
         if self._progress is not None and self._activity_task is not None:
-            self._progress.update(
+            self._progress.reset(
                 self._activity_task,
                 description="idle",
                 total=1,
                 completed=0,
+                start=False,
             )
 
     def start(self, epochs: int, section: str = "Update") -> None:
-        self.start_activity(epochs, f"update_epochs ({section})")
+        self.start_activity(epochs, "update")
 
     def epoch_finished(self) -> None:
         self.advance_activity()

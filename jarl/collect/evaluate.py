@@ -107,10 +107,9 @@ class TrueSkillEvaluator:
         )
         latest = self.opponent_pool.policy(latest_id, self.policy.device)
         matchups = len(opponent_ids) + len(self.fixed_opponents)
-        games = 2 * self.num_matches * matchups
         self.logger.start_activity(
             2 * self.max_steps * matchups,
-            f"trueskill_steps ({games} games)",
+            "eval",
         )
 
         wins = draws = completed_games = 0
