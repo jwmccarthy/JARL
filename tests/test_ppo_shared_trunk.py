@@ -110,6 +110,17 @@ class SharedTrunkPPOLossTests(unittest.TestCase):
         self.assertAlmostEqual(output.metrics["action_first_1_rate"].item(), 0.5)
         self.assertAlmostEqual(output.metrics["action_second_2_rate"].item(), 0.5)
 
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is required")
+    def test_factor_entropy_assignment_accepts_autocast_output_dtype(self):
+        destination = torch.empty((4, 2), dtype=torch.float32, device="cuda")
+        logits = torch.randn((4, 3), dtype=torch.bfloat16, device="cuda")
+
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            entropy = torch.distributions.Categorical(logits=logits).entropy()
+            destination[:, 0] = entropy
+
+        self.assertEqual(destination.dtype, entropy.dtype)
+
 
 if __name__ == "__main__":
     unittest.main()
