@@ -108,7 +108,7 @@ class TrueSkillEvaluator:
         latest = self.opponent_pool.policy(latest_id, self.policy.device)
         matchups = len(opponent_ids) + len(self.fixed_opponents)
         self.logger.start_activity(
-            2 * self.max_steps * matchups,
+            2 * self.num_matches * matchups,
             "eval",
         )
 
@@ -258,8 +258,6 @@ class TrueSkillEvaluator:
         outcomes = torch.zeros(
             self.num_matches, dtype=torch.float32, device=self.policy.device
         )
-        completed_steps = 0
-
         for _ in range(self.max_steps):
             grouped = observation.view(
                 self.num_matches, self.players_per_match, -1
@@ -288,10 +286,6 @@ class TrueSkillEvaluator:
             ).flatten(0, 1)
 
             observation, reward, terminated, truncated, _ = self.env.step(action)
-            completed_steps += 1
-            if on_step is not None:
-                on_step()
-
             done = (terminated | truncated).view(
                 self.num_matches, self.players_per_match
             ).any(dim=-1)
@@ -308,8 +302,8 @@ class TrueSkillEvaluator:
             if not active.any():
                 break
 
-        if on_step is not None and completed_steps < self.max_steps:
-            on_step(self.max_steps - completed_steps)
+        if on_step is not None:
+            on_step(self.num_matches)
         return outcomes
 
     @staticmethod
