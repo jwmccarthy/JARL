@@ -89,7 +89,9 @@ class Recurrent(nn.Module, ABC):
         reset = self._prepare_reset(reset, sequence, single_step)
         native_state = self._to_native(state)
 
-        if reset is None or not reset.any().item():
+        # Sequence batches omit reset masks when no boundary is present, so this
+        # branch does not need a CUDA any().item() synchronization.
+        if reset is None:
             output, native_state = self.rnn(sequence, native_state)
         else:
             output, native_state = self._unroll(sequence, native_state, reset)

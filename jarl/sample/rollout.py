@@ -214,7 +214,9 @@ class RecurrentRolloutMinibatches:
             batches.append((indices[left:right], left < len(resetting)))
             left = right
 
-        for batch in th.randperm(len(batches), device=device).tolist():
+        # The batch count is small; keep this control-plane permutation on CPU
+        # instead of synchronizing a CUDA tensor back to Python.
+        for batch in th.randperm(len(batches), device="cpu").tolist():
             selected, has_reset = batches[batch]
             yield self._build_batch(sequences, selected, has_reset=has_reset)
 
