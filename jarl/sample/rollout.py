@@ -100,13 +100,15 @@ class RecurrentRolloutMinibatches:
         if not len(eligible):
             raise RuntimeError("rollout contains no learner sequences")
 
+        batch_sizes = self._batch_sizes(len(eligible))
+
         done = sequences["terminated"] | sequences["truncated"]
         has_reset = done[:, :-1].any(dim=1)
         clean = eligible[~has_reset[eligible]]
         resetting = eligible[has_reset[eligible]]
 
         for _ in range(self.epochs):
-            yield from self._sample_epoch(sequences, clean, resetting)
+            yield from self._sample_epoch(sequences, clean, resetting, batch_sizes)
             if self._epoch_callback is not None:
                 self._epoch_callback()
 
@@ -181,21 +183,10 @@ class RecurrentRolloutMinibatches:
         sequences: dict[str, th.Tensor],
         clean: th.Tensor,
         resetting: th.Tensor,
+        batch_sizes: list[int],
     ):
         device = next(iter(sequences.values())).device
         clean = clean[th.randperm(len(clean), device=device)]
-
-        # Keep every optimizer batch near the requested size instead of giving
-        # a small reset group or final remainder the weight of a full batch.
-        sequence_count = len(clean) + len(resetting)
-        batch_count = (sequence_count + self.sequences_per_batch - 1) // (
-            self.sequences_per_batch
-        )
-        small_batch, larger_batches = divmod(sequence_count, batch_count)
-        batch_sizes = [
-            small_batch + (batch < larger_batches)
-            for batch in range(batch_count)
-        ]
 
         if not len(resetting):
             left = 0
@@ -219,6 +210,17 @@ class RecurrentRolloutMinibatches:
         for batch in th.randperm(len(batches), device="cpu").tolist():
             selected, has_reset = batches[batch]
             yield self._build_batch(sequences, selected, has_reset=has_reset)
+
+    def _batch_sizes(self, sequence_count: int) -> list[int]:
+        """Cache the balanced optimizer-batch layout across epochs."""
+        batch_count = (sequence_count + self.sequences_per_batch - 1) // (
+            self.sequences_per_batch
+        )
+        small_batch, larger_batches = divmod(sequence_count, batch_count)
+        return [
+            small_batch + (batch < larger_batches)
+            for batch in range(batch_count)
+        ]
 
     @staticmethod
     def _build_batch(
