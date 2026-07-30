@@ -23,6 +23,7 @@ class TrueSkillEvaluator:
         fixed_opponents: dict[str, object] | None = None,
         state_provider=None,
         compare_snapshots: bool = True,
+        all_population: bool = False,
     ) -> None:
         if interval < 1 or num_matches < 1 or max_steps < 1 or opponents < 1:
             raise ValueError("TrueSkill settings must be positive")
@@ -52,6 +53,7 @@ class TrueSkillEvaluator:
         self.fixed_opponents = fixed_opponents or {}
         self.state_provider = state_provider
         self.compare_snapshots = compare_snapshots
+        self.all_population = all_population
         self.next_evaluation = interval
         self.current_step = 0
         self.evaluation_count = 0
@@ -103,7 +105,9 @@ class TrueSkillEvaluator:
 
         latest_id = snapshot_ids[-1]
         opponent_ids = (
-            self._select_opponents(latest_id) if self.compare_snapshots else ()
+            self._select_opponents(latest_id, all_population=self.all_population)
+            if self.compare_snapshots
+            else ()
         )
         latest = self.opponent_pool.policy(latest_id, self.policy.device)
         matchups = len(opponent_ids) + len(self.fixed_opponents)
@@ -214,12 +218,16 @@ class TrueSkillEvaluator:
             self.env.close()
             self.env = None
 
-    def _select_opponents(self, latest_id: int) -> tuple[int, ...]:
+    def _select_opponents(
+        self, latest_id: int, *, all_population: bool = False
+    ) -> tuple[int, ...]:
         candidates = [
             snapshot_id
             for snapshot_id in self.opponent_pool.archive_ids
             if snapshot_id != latest_id
         ]
+        if all_population:
+            return tuple(candidates)
         count = min(self.opponents, len(candidates))
         if not count:
             return ()
@@ -414,8 +422,6 @@ class TrueSkillEvaluator:
         }
         latest = snapshots[str(latest_id)] | {"snapshot_id": latest_id}
         direct_matchups = {}
-        dominance_numerator = 0.0
-        dominance_denominator = 0.0
         for match in self.history:
             if match["left"] != latest_id:
                 continue
@@ -427,24 +433,6 @@ class TrueSkillEvaluator:
                 "draw_rate": sum(outcome == 0 for outcome in outcomes) / total,
                 "loss_rate": sum(outcome < 0 for outcome in outcomes) / total,
             }
-            opponent = match["right"]
-            if isinstance(opponent, int) and opponent in self.snapshot_ratings:
-                opponent_rank = opponent + 1
-                weight = float(opponent_rank)
-            else:
-                weight = 1.0
-            score = (
-                sum(outcome > 0 for outcome in outcomes)
-                + 0.5 * sum(outcome == 0 for outcome in outcomes)
-            ) / total
-            dominance_numerator += weight * score
-            dominance_denominator += weight
-        dominance_score = (
-            dominance_numerator / dominance_denominator
-            if dominance_denominator
-            else None
-        )
-        latest["population_dominance"] = dominance_score
         self._write_json(
             self.checkpoint_dir / "trueskill_ratings.json",
             {
@@ -453,7 +441,6 @@ class TrueSkillEvaluator:
                 "snapshots":       snapshots,
                 "anchors":         anchors,
                 "direct_matchups": direct_matchups,
-                "population_dominance": dominance_score,
                 "match_batches":   len(self.history),
             },
         )
