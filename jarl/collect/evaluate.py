@@ -321,7 +321,7 @@ class TrueSkillEvaluator:
             if raw is None:
                 raise ValueError("raw-state policy requires an evaluation state provider")
             return act_from_raw(raw, state, car_index)
-        return policy.act(observation, state)
+        return policy.act(observation, state, deterministic=True)
 
     def _recompute_ratings(self) -> None:
         archive_ids = self.opponent_pool.archive_ids
