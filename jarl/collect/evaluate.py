@@ -420,8 +420,8 @@ class TrueSkillEvaluator:
             outcomes = match["outcomes"]
             total = len(outcomes)
             direct_matchups[str(match["right"])] = {
-                "games": total,
-                "win_rate": sum(outcome > 0 for outcome in outcomes) / total,
+                "games":     total,
+                "win_rate":  sum(outcome > 0 for outcome in outcomes) / total,
                 "draw_rate": sum(outcome == 0 for outcome in outcomes) / total,
                 "loss_rate": sum(outcome < 0 for outcome in outcomes) / total,
             }
@@ -431,9 +431,9 @@ class TrueSkillEvaluator:
                 "current":       latest,
                 "latest":        latest,
                 "snapshots":     snapshots,
-                "anchors":       anchors,
+                "anchors":         anchors,
                 "direct_matchups": direct_matchups,
-                "match_batches": len(self.history),
+                "match_batches":    len(self.history),
             },
         )
 
