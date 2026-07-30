@@ -428,12 +428,12 @@ class TrueSkillEvaluator:
         self._write_json(
             self.checkpoint_dir / "trueskill_ratings.json",
             {
-                "current":       latest,
-                "latest":        latest,
-                "snapshots":     snapshots,
+                "current":         latest,
+                "latest":          latest,
+                "snapshots":       snapshots,
                 "anchors":         anchors,
                 "direct_matchups": direct_matchups,
-                "match_batches":    len(self.history),
+                "match_batches":   len(self.history),
             },
         )
 
