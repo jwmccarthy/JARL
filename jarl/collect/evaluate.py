@@ -413,6 +413,18 @@ class TrueSkillEvaluator:
             if isinstance(snapshot_id, str)
         }
         latest = snapshots[str(latest_id)] | {"snapshot_id": latest_id}
+        direct_matchups = {}
+        for match in self.history:
+            if match["left"] != latest_id:
+                continue
+            outcomes = match["outcomes"]
+            total = len(outcomes)
+            direct_matchups[str(match["right"])] = {
+                "games": total,
+                "win_rate": sum(outcome > 0 for outcome in outcomes) / total,
+                "draw_rate": sum(outcome == 0 for outcome in outcomes) / total,
+                "loss_rate": sum(outcome < 0 for outcome in outcomes) / total,
+            }
         self._write_json(
             self.checkpoint_dir / "trueskill_ratings.json",
             {
@@ -420,6 +432,7 @@ class TrueSkillEvaluator:
                 "latest":        latest,
                 "snapshots":     snapshots,
                 "anchors":       anchors,
+                "direct_matchups": direct_matchups,
                 "match_batches": len(self.history),
             },
         )
