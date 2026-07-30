@@ -414,6 +414,8 @@ class TrueSkillEvaluator:
         }
         latest = snapshots[str(latest_id)] | {"snapshot_id": latest_id}
         direct_matchups = {}
+        dominance_numerator = 0.0
+        dominance_denominator = 0.0
         for match in self.history:
             if match["left"] != latest_id:
                 continue
@@ -425,6 +427,24 @@ class TrueSkillEvaluator:
                 "draw_rate": sum(outcome == 0 for outcome in outcomes) / total,
                 "loss_rate": sum(outcome < 0 for outcome in outcomes) / total,
             }
+            opponent = match["right"]
+            if isinstance(opponent, int) and opponent in self.snapshot_ratings:
+                opponent_rank = opponent + 1
+                weight = float(opponent_rank)
+            else:
+                weight = 1.0
+            score = (
+                sum(outcome > 0 for outcome in outcomes)
+                + 0.5 * sum(outcome == 0 for outcome in outcomes)
+            ) / total
+            dominance_numerator += weight * score
+            dominance_denominator += weight
+        dominance_score = (
+            dominance_numerator / dominance_denominator
+            if dominance_denominator
+            else None
+        )
+        latest["population_dominance"] = dominance_score
         self._write_json(
             self.checkpoint_dir / "trueskill_ratings.json",
             {
@@ -433,6 +453,7 @@ class TrueSkillEvaluator:
                 "snapshots":       snapshots,
                 "anchors":         anchors,
                 "direct_matchups": direct_matchups,
+                "population_dominance": dominance_score,
                 "match_batches":   len(self.history),
             },
         )
