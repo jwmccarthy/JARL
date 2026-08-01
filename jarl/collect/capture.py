@@ -78,15 +78,6 @@ class RecurrentCriticCapture:
         if self.state is None:
             raise ValueError("recurrent critic capture requires a recurrent critic")
 
-    def set_state(self, state: th.Tensor) -> None:
-        if self.state is None:
-            raise RuntimeError("critic capture must be reset before setting state")
-        if state.shape != self.state.shape:
-            raise ValueError(
-                f"critic state shape {state.shape} does not match {self.state.shape}"
-            )
-        self.state = state
-
     @th.no_grad()
     def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
         if self.state is None:

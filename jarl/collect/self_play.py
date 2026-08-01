@@ -1,11 +1,10 @@
 import copy
 import random
-
-import torch as th
-
-from pathlib import Path
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
+
+import torch as th
 
 from jarl.collect.capture import CaptureContext, build_record
 from jarl.collect.runner import _make_env_step, _reset_state
@@ -13,7 +12,6 @@ from jarl.data.records import PolicyOutput
 
 
 class SnapshotPool:
-
     def __init__(
         self,
         policy,
@@ -39,10 +37,8 @@ class SnapshotPool:
             else initial_snapshot_interval
         )
         self.active_cache_size = active_cache_size
-
         self._random = random.Random(seed)
         self.checkpoint_dir = checkpoint_dir
-        
         if self.checkpoint_dir is not None:
             if self.checkpoint_dir.exists() and any(self.checkpoint_dir.iterdir()):
                 raise ValueError(
@@ -340,7 +336,6 @@ class SelfPlayRunner:
         snapshot_policy,
         historical_policies: int = 1,
         captures=(),
-        reset_hooks=(),
     ) -> None:
         if historical_policies < 1:
             raise ValueError("historical_policies must be positive")
@@ -355,7 +350,6 @@ class SelfPlayRunner:
         self.snapshot_policy = snapshot_policy
         self.historical_policies = historical_policies
         self.captures = tuple(captures)
-        self.reset_hooks = tuple(reset_hooks)
         self.observation = None
         self.state = None
         self._timestep_count = 0
@@ -376,9 +370,6 @@ class SelfPlayRunner:
             if reset_state is not None:
                 reset_state(self.n_envs)
         self.matchmaker.rematch()
-        reset_mask = th.ones(self.n_envs, dtype=th.bool, device=self.policy.device)
-        for hook in self.reset_hooks:
-            hook(self, reset_mask)
         self._timestep_count = self.matchmaker.learner_count
         return self.observation
 
@@ -400,8 +391,6 @@ class SelfPlayRunner:
         self.observation = env_step.observation
         self.state = _reset_state(policy_output.next_state, env_step.done)
         self.matchmaker.rematch(env_step.done)
-        for hook in self.reset_hooks:
-            hook(self, env_step.done)
         return env_step
 
     def _learner_episode_info(self, env_step) -> dict:
