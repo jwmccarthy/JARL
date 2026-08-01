@@ -46,9 +46,6 @@ class Logger:
         self.register_progress_metric(
             "Episode", "length", label="episode_length", format_spec=",.1f"
         )
-        self.register_progress_metric(
-            "Episode", "reward_per_step", format_spec=",.4f"
-        )
 
         if log_dir:
             from torch.utils.tensorboard import SummaryWriter
