@@ -434,7 +434,7 @@ class SelfPlayRunner:
             if isinstance(values, list) and len(values) == len(learner):
                 info[key] = [value for value, keep in zip(values, learner) if keep]
             if (
-                key in ("reward", "length")
+                key in ("reward", "length", "reward_per_step")
                 and isinstance(values, list)
                 and len(values) == len(learner)
             ):
