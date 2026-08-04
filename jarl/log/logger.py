@@ -1,6 +1,10 @@
-import numpy as np
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
+from typing import Any, Protocol
+
 from rich.console import Group
 from rich.live import Live
 from rich.progress import (
@@ -8,124 +12,232 @@ from rich.progress import (
     Progress,
     ProgressColumn,
     Task,
+    TaskID,
     TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
 )
 from rich.text import Text
 
-from collections import defaultdict, deque
-from typing import Any, Generator, List, Mapping
+
+MetricIdentifier = tuple[str, str]
+Metrics = Mapping[str, Mapping[str, Any]]
+
+
+class ScalarWriter(Protocol):
+
+    def add_scalar(
+        self,
+        tag: str,
+        scalar_value: Any,
+        global_step: int,
+    ) -> None: ...
+
+    def flush(self) -> None:
+        ...
+
+    def close(self) -> None:
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class ProgressMetricSpec:
+    label:       str
+    format_spec: str
 
 
 class AverageTimeRemainingColumn(ProgressColumn):
+
     def render(self, task: Task) -> Text:
         if task.total is None or task.completed <= 0 or task.elapsed is None:
             return Text("--:--:--", style="progress.remaining")
+
         remaining = max(task.total - task.completed, 0.0)
         seconds = round(task.elapsed * remaining / task.completed)
-        return Text(str(timedelta(seconds=seconds)), style="progress.remaining")
+
+        return Text(
+            str(timedelta(seconds=seconds)),
+            style="progress.remaining",
+        )
 
 
 class Logger:
-    def __init__(self, log_dir: str = None):
-        self.episode_data = defaultdict(lambda: deque(maxlen=50))
+    def __init__(
+        self,
+        log_dir: str | Path | None = None,
+    ) -> None:
         self.step = 0
-        self.writer = None
-        self._progress = None
-        self._metrics = None
-        self._progress_metric_specs = {}
-        self._progress_metric_tasks = {}
-        self._global_t_task = None
-        self._activity_task = None
+        self._writer: ScalarWriter | None = self._create_writer(log_dir)
 
-        self.register_progress_metric("Episode", "reward", format_spec=",.2f")
-        self.register_progress_metric(
-            "Episode", "historical_reward", format_spec=",.2f"
-        )
-        self.register_progress_metric(
-            "Episode", "length", label="episode_length", format_spec=",.1f"
-        )
+        self._progress: Progress | None = None
+        self._metrics: Progress | None = None
+        self._main_task: TaskID | None = None
+        self._activity_task: TaskID | None = None
 
-        if log_dir:
-            from torch.utils.tensorboard import SummaryWriter
+        self._progress_metric_specs: dict[
+            MetricIdentifier,
+            ProgressMetricSpec,
+        ] = {}
+        self._progress_metric_tasks: dict[
+            MetricIdentifier,
+            TaskID,
+        ] = {}
 
-            self.writer = SummaryWriter(log_dir)
+    @staticmethod
+    def _create_writer(
+        log_dir: str | Path | None,
+    ) -> ScalarWriter | None:
+        if log_dir is None:
+            return None
 
-    def _write(self, info: Mapping[str, Any], step: int) -> None:
-        if not self.writer:
-            return
+        from torch.utils.tensorboard import SummaryWriter
 
-        for section, values in info.items():
-            for key, value in values.items():
-                self.writer.add_scalar(f"{section}/{key}", float(value), step)
+        return SummaryWriter(str(log_dir))
 
     def register_progress_metric(
         self,
-        section: str,
-        key: str,
-        label: str | None = None,
+        section:     str,
+        key:         str,
+        label:       str | None = None,
         format_spec: str = ",.2f",
     ) -> None:
         if not section or not key:
-            raise ValueError("progress metric section and key cannot be empty")
+            raise ValueError(
+                "progress metric section and key cannot be empty"
+            )
+
         identifier = (section, key)
+
         if identifier in self._progress_metric_specs:
-            raise ValueError(f"progress metric already registered: {section}/{key}")
+            raise ValueError(
+                f"progress metric already registered: {section}/{key}"
+            )
 
-        self._progress_metric_specs[identifier] = (label or key, format_spec)
+        spec = ProgressMetricSpec(
+            label=label or key,
+            format_spec=format_spec,
+        )
+        self._progress_metric_specs[identifier] = spec
+
         if self._metrics is not None:
-            self._progress_metric_tasks[identifier] = self._metrics.add_task(
-                label or key,
-                total=None,
-                value="-",
+            self._progress_metric_tasks[identifier] = (
+                self._create_metric_task(spec)
             )
 
-    def _update_progress_metrics(self, info: Mapping[str, Any]) -> None:
-        if self._metrics is None:
-            return
-
-        for identifier, task in self._progress_metric_tasks.items():
-            section, key = identifier
-            values = info.get(section)
-            if not isinstance(values, Mapping) or key not in values:
-                continue
-            _, format_spec = self._progress_metric_specs[identifier]
-            self._metrics.update(
-                task,
-                value=format(float(values[key]), format_spec),
-            )
-
-    def episode(self, t: int, info: Mapping[str, List[Any]]) -> None:
-        self.step = t
-
-        for key, values in info.items():
-            self.episode_data[key].extend(values)
-
-        new_info = dict(global_t=t)
-
-        for key, values in self.episode_data.items():
-            if info.get(key):
-                new_info |= {key: np.mean(values)}
-
-        update = dict(Episode=new_info)
-        self._write(update, t)
-        self._update_progress_metrics(update)
-
-    def update(self, info: Mapping[str, Any], step: int = None) -> None:
+    def update(
+        self,
+        metrics: Metrics,
+        step:    int | None = None,
+    ) -> None:
         if step is not None:
             self.step = step
 
-        self._write(info, self.step)
-        self._update_progress_metrics(info)
+        self._write(metrics)
+        self._update_progress_metrics(metrics)
+
+    def _write(self, metrics: Metrics) -> None:
+        if self._writer is None:
+            return
+
+        for section, values in metrics.items():
+            for key, value in values.items():
+                self._writer.add_scalar(
+                    f"{section}/{key}",
+                    float(value),
+                    self.step,
+                )
+
+    def _update_progress_metrics(self, metrics: Metrics) -> None:
+        if self._metrics is None:
+            return
+
+        for identifier, task_id in self._progress_metric_tasks.items():
+            section, key = identifier
+            section_metrics = metrics.get(section)
+
+            if section_metrics is None or key not in section_metrics:
+                continue
+
+            spec = self._progress_metric_specs[identifier]
+            value = format(
+                float(section_metrics[key]),
+                spec.format_spec,
+            )
+
+            self._metrics.update(task_id, value=value)
 
     @contextmanager
     def progress(
         self,
-        total_timesteps: int,
-        initial_timesteps: int = 0,
+        total_steps:   int,
+        initial_steps: int = 0,
+        description:   str = "progress",
     ) -> Generator[None, None, None]:
-        progress = Progress(
+        self._validate_progress(total_steps, initial_steps)
+
+        if self._progress is not None:
+            raise RuntimeError("a progress display is already active")
+
+        self._initialize_progress(
+            total_steps=total_steps,
+            initial_steps=initial_steps,
+            description=description,
+        )
+
+        assert self._progress is not None
+        assert self._metrics is not None
+
+        try:
+            with Live(
+                Group(self._progress, self._metrics),
+                refresh_per_second=10,
+            ):
+                yield
+        finally:
+            self._clear_progress()
+
+    @staticmethod
+    def _validate_progress(
+        total_steps:   int,
+        initial_steps: int,
+    ) -> None:
+        if total_steps < 0:
+            raise ValueError("total_steps cannot be negative")
+
+        if not 0 <= initial_steps <= total_steps:
+            raise ValueError(
+                "initial_steps must be between zero and total_steps"
+            )
+
+    def _initialize_progress(
+        self,
+        total_steps:   int,
+        initial_steps: int,
+        description:   str,
+    ) -> None:
+        self._progress = self._create_progress_display()
+        self._metrics = self._create_metrics_display()
+
+        self._main_task = self._progress.add_task(
+            description,
+            total=total_steps,
+            completed=initial_steps,
+        )
+        self._activity_task = self._progress.add_task(
+            "idle",
+            total=1,
+            completed=0,
+            start=False,
+        )
+
+        self._progress_metric_tasks = {
+            identifier: self._create_metric_task(spec)
+            for identifier, spec in self._progress_metric_specs.items()
+        }
+
+    @staticmethod
+    def _create_progress_display() -> Progress:
+        return Progress(
             TextColumn("[bold]{task.description}"),
             BarColumn(),
             TaskProgressColumn(),
@@ -135,80 +247,104 @@ class Logger:
             AverageTimeRemainingColumn(),
             auto_refresh=False,
         )
-        metrics = Progress(
+
+    @staticmethod
+    def _create_metrics_display() -> Progress:
+        return Progress(
             TextColumn("[bold]{task.description}"),
             TextColumn("{task.fields[value]}"),
             auto_refresh=False,
         )
-        global_t_task = progress.add_task(
-            "global_t",
-            total=total_timesteps,
-            completed=initial_timesteps,
+
+    def _create_metric_task(
+        self,
+        spec: ProgressMetricSpec,
+    ) -> TaskID:
+        if self._metrics is None:
+            raise RuntimeError("metrics display is not active")
+
+        return self._metrics.add_task(
+            spec.label,
+            total=None,
+            value="-",
         )
-        self._progress = progress
-        self._metrics = metrics
-        self._global_t_task = global_t_task
-        self._activity_task = progress.add_task(
-            "idle",
-            total=1,
-            completed=0,
-            start=False,
-        )
-        self._progress_metric_tasks = {
-            identifier: metrics.add_task(
-                label,
-                total=None,
-                value="-",
-            )
-            for identifier, (label, _) in self._progress_metric_specs.items()
-        }
 
-        try:
-            with Live(Group(progress, metrics), refresh_per_second=10):
-                yield
-        finally:
-            self._progress = None
-            self._metrics = None
-            self._global_t_task = None
-            self._activity_task = None
-            self._progress_metric_tasks = {}
+    def _clear_progress(self) -> None:
+        self._progress = None
+        self._metrics = None
+        self._main_task = None
+        self._activity_task = None
+        self._progress_metric_tasks.clear()
 
-            if self.writer:
-                self.writer.close()
+    def advance(self, amount: int = 1) -> None:
+        if self._progress is None or self._main_task is None:
+            return
 
-    def advance(self, timesteps: int) -> None:
-        if self._progress is not None and self._global_t_task is not None:
-            self._progress.advance(self._global_t_task, timesteps)
+        self._progress.advance(self._main_task, amount)
 
-    def start_activity(self, total: int, description: str) -> None:
+    def start_activity(
+        self,
+        total:       int,
+        description: str,
+    ) -> None:
+        if total < 0:
+            raise ValueError("activity total cannot be negative")
+
         if self._progress is None or self._activity_task is None:
             return
+
         self._progress.reset(
             self._activity_task,
             description=description,
             total=total,
             completed=0,
+            start=True,
         )
 
     def advance_activity(self, amount: int = 1) -> None:
-        if self._progress is not None and self._activity_task is not None:
-            self._progress.advance(self._activity_task, amount)
+        if self._progress is None or self._activity_task is None:
+            return
+
+        self._progress.advance(self._activity_task, amount)
 
     def finish_activity(self) -> None:
-        if self._progress is not None and self._activity_task is not None:
-            self._progress.reset(
-                self._activity_task,
-                description="idle",
-                total=1,
-                completed=0,
-                start=False,
-            )
+        if self._progress is None or self._activity_task is None:
+            return
 
-    def start(self, epochs: int, section: str = "Update") -> None:
-        self.start_activity(epochs, "update")
+        self._progress.reset(
+            self._activity_task,
+            description="idle",
+            total=1,
+            completed=0,
+            start=False,
+        )
+
+    def start(
+        self,
+        total:   int,
+        section: str = "Update",
+    ) -> None:
+        self.start_activity(total, section)
 
     def epoch_finished(self) -> None:
         self.advance_activity()
 
     def finish(self) -> None:
         self.finish_activity()
+
+    def flush(self) -> None:
+        if self._writer is not None:
+            self._writer.flush()
+
+    def close(self) -> None:
+        if self._writer is None:
+            return
+
+        self._writer.close()
+        self._writer = None
+
+    def __enter__(self) -> "Logger":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()

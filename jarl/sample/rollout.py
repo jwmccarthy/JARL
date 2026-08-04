@@ -46,10 +46,10 @@ class RolloutMinibatches:
 
 @dataclass(frozen=True)
 class SequenceBatch:
-    steps:               TensorBatch
-    initial_state:       th.Tensor
-    reset:               th.Tensor | None
-    valid:               th.Tensor
+    steps:                TensorBatch
+    initial_state:        th.Tensor
+    reset:                th.Tensor | None
+    valid:                th.Tensor
     initial_critic_state: th.Tensor | None = None
 
 
@@ -64,10 +64,10 @@ class RecurrentRolloutMinibatches:
 
     def __init__(
         self,
-        sequence_length: int,
+        sequence_length:     int,
         sequences_per_batch: int,
-        epochs: int = 1,
-        fields: tuple[str, ...] | None = None,
+        epochs:              int = 1,
+        fields:              tuple[str, ...] | None = None,
     ) -> None:
         if sequence_length < 1 or sequences_per_batch < 1 or epochs < 1:
             raise ValueError("sequence settings must be positive")
@@ -161,8 +161,8 @@ class RecurrentRolloutMinibatches:
 
     def _build_sequences(
         self,
-        data: TensorBatch,
-        chunks: int,
+        data:     TensorBatch,
+        chunks:   int,
         num_envs: int,
     ) -> dict[str, th.Tensor]:
         sequence_count = chunks * num_envs
@@ -180,9 +180,9 @@ class RecurrentRolloutMinibatches:
 
     def _sample_epoch(
         self,
-        sequences: dict[str, th.Tensor],
-        clean: th.Tensor,
-        resetting: th.Tensor,
+        sequences:   dict[str, th.Tensor],
+        clean:       th.Tensor,
+        resetting:   th.Tensor,
         batch_sizes: list[int],
     ):
         device = next(iter(sequences.values())).device
@@ -225,7 +225,7 @@ class RecurrentRolloutMinibatches:
     @staticmethod
     def _build_batch(
         sequences: dict[str, th.Tensor],
-        selected: th.Tensor,
+        selected:  th.Tensor,
         *,
         has_reset: bool,
     ) -> SequenceBatch:

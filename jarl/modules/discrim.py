@@ -11,11 +11,11 @@ class Discriminator(CompositeNet):
     
     def __init__(
         self, 
-        head: Encoder, 
+        foot: Encoder, 
         body: nn.Module,
-        foot: nn.Module = nn.Sigmoid()
+        head: nn.Module = nn.Sigmoid()
     ) -> None:
-        super().__init__(head, body, foot)
+        super().__init__(foot, body, head)
 
     def forward(self, x: Tuple[th.Tensor, ...]) -> th.Tensor:
         return super().forward(x).squeeze(-1)

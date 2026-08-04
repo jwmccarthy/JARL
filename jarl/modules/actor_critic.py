@@ -1,24 +1,44 @@
 import torch as th
-import torch.nn as nn
+from torch.distributions import Distribution
+
+from typing import Self
 
 from jarl.data.records import Evaluation, PolicyOutput
+from jarl.envs.gym import SyncGymEnv
+from jarl.modules.operator import Critic
+from jarl.modules.policy import Policy
+from jarl.modules.trunk import SharedTrunk
 
 
-class ActorCritic(nn.Module):
+class ActorCritic(Policy):
+
     def __init__(
         self,
-        actor,
-        critic,
-        shared_state: bool = False,
+        policy: Policy,
+        critic: Critic,
     ) -> None:
-        super().__init__()
-        self.actor = actor
+        super().__init__(policy.foot, policy.body, policy.head)
+        self.policy = policy
         self.critic = critic
-        self.shared_state = shared_state
+        self.shared_state = policy.foot is critic.foot
+        self.trunk = (
+            SharedTrunk(policy.foot, policy.body)
+            if self.shared_state
+            else None
+        )
         self.device = th.device("cpu")
         self.built = False
 
-    def build(self, env):
+    def dist(self, observation: th.Tensor) -> Distribution:
+        return self.policy.dist(observation)
+
+    def action(self, observation: th.Tensor) -> th.Tensor:
+        return self.policy.action(observation)
+
+    def sample(self, observation: th.Tensor) -> th.Tensor:
+        return self.policy.sample(observation)
+
+    def build(self, env: SyncGymEnv) -> Self:
         if self.shared_state:
             self._build_shared(env)
         else:
@@ -27,39 +47,36 @@ class ActorCritic(nn.Module):
         self.built = True
         return self
 
-    def _build_shared(self, env) -> None:
-        if self.actor.head is not self.critic.head:
-            raise ValueError("shared state requires the same head instance")
-        if self.actor.body is not self.critic.body:
+    def _build_shared(self, env: SyncGymEnv) -> None:
+        if self.policy.foot is not self.critic.foot:
+            raise ValueError("shared state requires the same foot instance")
+        if self.policy.body is not self.critic.body:
             raise ValueError("shared state requires the same body instance")
 
-        head = self.actor.head
-        body = self.actor.body
+        if self.trunk is None:
+            raise RuntimeError("shared actor-critic is missing its trunk")
+        self.trunk.build(env)
+        if self.trunk.feats is None:
+            raise TypeError("shared trunk must expose its output feature count")
 
-        if not head.built:
-            head.build(env)
-        if not getattr(body, "built", False):
-            body.build(head.feats)
-        if not hasattr(body, "feats"):
-            raise TypeError("shared body must expose its output feature count")
+        self.policy.build_composed(env, self.trunk.feats)
+        self.critic.build_composed(env, self.trunk.feats)
 
-        self.actor.build_composed(env, body.feats)
-        self.critic.build_composed(env, body.feats)
-
-    def _build_independent(self, env) -> None:
-        self.actor.build(env)
+    def _build_independent(self, env: SyncGymEnv) -> None:
+        self.policy.build(env)
         self.critic.build(env)
 
-        actor_recurrent = self.actor.initial_state(1) is not None
-        critic_recurrent = hasattr(self.critic.body, "initial_state")
-        if actor_recurrent or critic_recurrent:
+        policy_recurrent = self.policy.initial_state(1) is not None
+        critic_recurrent = self.critic.initial_state(1) is not None
+        
+        if policy_recurrent or critic_recurrent:
             raise NotImplementedError(
                 "independent recurrent actor-critic state is not yet supported"
             )
 
-    def to(self, device, *args, **kwargs):
+    def to(self, device: str, *args, **kwargs) -> Self:
         self.device = th.device(device)
-        self.actor.device = self.device
+        self.policy.device = self.device
         self.critic.device = self.device
         return super().to(device, *args, **kwargs)
 
@@ -67,28 +84,29 @@ class ActorCritic(nn.Module):
         self._require_built()
         if not self.shared_state:
             return None
-        return self.actor.initial_state(batch_size)
+        return self.policy.initial_state(batch_size)
 
     def act(
         self,
-        observation: th.Tensor,
-        state:       th.Tensor | None = None,
+        observation:   th.Tensor,
+        state:         th.Tensor | None = None,
         *,
         deterministic: bool = False,
     ) -> PolicyOutput:
         if not self.shared_state:
-            output = self.actor.act(observation, state, deterministic=deterministic)
+            output = self.policy.act(observation, state, deterministic=deterministic)
             output.extras["value"] = self.critic.value(observation)
             return output
 
         features, next_state = self._shared_features(observation, state)
-        output = self.actor.act_from_features(
+        output = self.policy.act_from_features(
             features,
             observation,
             deterministic=deterministic,
         )
         output.next_state = next_state
         output.extras["value"] = self.critic.value_from_features(features)
+
         return output
 
     def evaluate_actions(
@@ -100,19 +118,20 @@ class ActorCritic(nn.Module):
         reset:       th.Tensor | None = None,
     ) -> Evaluation:
         if not self.shared_state:
-            evaluation = self.actor.evaluate_actions(
+            evaluation = self.policy.evaluate_actions(
                 observation, action, state, reset=reset
             )
             evaluation.value = self.critic.evaluate_values(observation)
             return evaluation
 
         features, _ = self._shared_features(observation, state, reset)
-        evaluation = self.actor.evaluate_from_features(
+        evaluation = self.policy.evaluate_from_features(
             features,
             observation,
             action,
         )
         evaluation.value = self.critic.value_from_features(features)
+
         return evaluation
 
     def value(
@@ -143,7 +162,9 @@ class ActorCritic(nn.Module):
         state:       th.Tensor | None,
         reset:       th.Tensor | None = None,
     ) -> tuple[th.Tensor, th.Tensor | None]:
-        return self.actor.body_features(observation, state, reset)
+        if self.trunk is None:
+            raise RuntimeError("actor-critic has no shared trunk")
+        return self.trunk(observation, state, reset)
 
     def _require_built(self) -> None:
         if not self.built:

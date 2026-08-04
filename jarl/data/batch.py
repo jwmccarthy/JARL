@@ -1,8 +1,8 @@
-from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
-from typing import Any
-
 import torch as th
+
+from typing import Any
+from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,7 @@ class TensorBatch(Mapping[str, th.Tensor]):
 
         for key, value in fields.items():
             prefix = min(value.ndim, len(self.shape))
+            
             if prefix == 0 or tuple(value.shape[:prefix]) != self.shape[:prefix]:
                 raise ValueError(
                     f"field {key!r} does not share a leading batch shape"

@@ -10,22 +10,28 @@ from jarl.modules.encoder.core import Encoder
 
 
 class Critic(CompositeNet):
-    def __init__(self, head: Encoder, body: nn.Module, foot: nn.Module = None) -> None:
-        super().__init__(head, body, foot)
+    
+    def __init__(
+        self, 
+        foot: Encoder, 
+        body: nn.Module, 
+        head: nn.Module = None
+    ) -> None:
+        super().__init__(foot, body, head)
         self._composed = False
 
     def build(self, env: SyncGymEnv) -> Self:
         return super().build(env)
 
     def build_composed(self, env: SyncGymEnv, in_dim: int) -> Self:
-        if self.foot is None or not hasattr(self.foot, "build"):
-            raise TypeError("composed critic requires a buildable foot")
-        self.foot.build(in_dim, 1)
+        if self.head is None or not hasattr(self.head, "build"):
+            raise TypeError("composed critic requires a buildable head")
+        self.head.build(in_dim, 1)
         self._composed = True
         return self
 
     def initial_state(self, batch_size: int) -> th.Tensor | None:
-        if self._composed and hasattr(self.body, "initial_state"):
+        if hasattr(self.body, "initial_state"):
             return self.body.initial_state(batch_size, device=self.device)
         return None
 
@@ -48,9 +54,9 @@ class Critic(CompositeNet):
     def evaluate_values(
         self,
         observation: th.Tensor,
-        state: th.Tensor | None = None,
+        state:       th.Tensor | None = None,
         *,
-        reset: th.Tensor | None = None,
+        reset:       th.Tensor | None = None,
     ) -> th.Tensor:
         if self._composed:
             features, _ = self.body_features(observation, state, reset)
@@ -61,7 +67,7 @@ class Critic(CompositeNet):
         return self.value(observation, state)
 
     def value_from_features(self, features: th.Tensor) -> th.Tensor:
-        return self.foot(features).squeeze(-1)
+        return self.head(features).squeeze(-1)
 
     def body_features(
         self,
@@ -69,7 +75,7 @@ class Critic(CompositeNet):
         state:       th.Tensor | None = None,
         reset:       th.Tensor | None = None,
     ) -> tuple[th.Tensor, th.Tensor | None]:
-        features = self.head(observation)
+        features = self.foot(observation)
         if hasattr(self.body, "initial_state"):
             if (
                 state is not None
@@ -84,8 +90,14 @@ class Critic(CompositeNet):
 
 
 class DiscreteQFunction(CompositeNet):
-    def __init__(self, head: Encoder, body: nn.Module, foot: nn.Module = None) -> None:
-        super().__init__(head, body, foot)
+
+    def __init__(
+        self,
+        foot: Encoder,
+        body: nn.Module,
+        head: nn.Module = None
+    ) -> None:
+        super().__init__(foot, body, head)
 
     def build(self, env: SyncGymEnv) -> Self:
         space = action_space(env)
@@ -100,8 +112,14 @@ class DiscreteQFunction(CompositeNet):
 
 
 class ContinuousQFunction(CompositeNet):
-    def __init__(self, head: Encoder, body: nn.Module, foot: nn.Module = None) -> None:
-        super().__init__(head, body, foot)
+
+    def __init__(
+        self,
+        foot: Encoder,
+        body: nn.Module, 
+        head: nn.Module = None
+    ) -> None:
+        super().__init__(foot, body, head)
 
     def build(self, env: SyncGymEnv) -> Self:
         space = action_space(env)
@@ -109,11 +127,11 @@ class ContinuousQFunction(CompositeNet):
             "ContinuousQFunction only supports Box action"
         )
 
-        self.head = self.head if self.head.built else self.head.build(env)
-        self.body.build(self.head.feats + space.numel, 1)
-        self.foot = self.foot if self.foot else nn.Identity()
+        self.foot = self.foot if self.foot.built else self.foot.build(env)
+        self.body.build(self.foot.feats + space.numel, 1)
+        self.head = self.head if self.head else nn.Identity()
         return self
 
     def forward(self, observation: th.Tensor, action: th.Tensor) -> th.Tensor:
-        feats = th.cat((self.head(observation), action), dim=-1)
-        return self.foot(self.body(feats)).squeeze(-1)
+        feats = th.cat((self.foot(observation), action), dim=-1)
+        return self.head(self.body(feats)).squeeze(-1)

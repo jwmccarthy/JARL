@@ -7,6 +7,7 @@ from jarl.modules.policy import Policy
 
 
 class Runner:
+    
     def __init__(self, env, policy: Policy, buffer, captures=()) -> None:
         self.env = env
         self.policy = policy
@@ -27,9 +28,7 @@ class Runner:
         self.observation = self.env.reset()
         self.state = self.policy.initial_state(self.n_envs)
         for capture in self.captures:
-            reset_state = getattr(capture, "reset_state", None)
-            if reset_state is not None:
-                reset_state(self.n_envs)
+            capture.reset(self.n_envs)
         return self.observation
 
     @th.no_grad()
@@ -51,6 +50,9 @@ class Runner:
         self.observation = env_step.observation
         self.state = _reset_state(policy_output.next_state, env_step.done)
         return env_step
+
+    def after_update(self, env_steps: int) -> None:
+        return
 
 
 def _reset_state(state: th.Tensor | None, done) -> th.Tensor | None:

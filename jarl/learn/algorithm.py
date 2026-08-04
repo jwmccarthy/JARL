@@ -17,9 +17,7 @@ class Algorithm:
 
     def set_progress_callback(self, callback) -> None:
         for stage in self.stages:
-            setter = getattr(stage, "set_progress_callback", None)
-            if setter is not None:
-                setter(callback)
+            stage.set_progress_callback(callback)
 
 
 class TransformRollout:
@@ -33,6 +31,9 @@ class TransformRollout:
         self.report_fields = report_fields
         self.section = section
 
+    def set_progress_callback(self, callback) -> None:
+        return
+
     def run(self, rollout):
         if not isinstance(rollout, Rollout):
             raise TypeError("TransformRollout requires a Rollout")
@@ -43,13 +44,17 @@ class TransformRollout:
             PrepareContext(rollout),
         )
         metrics = {}
+
         if self.report_fields:
             valid = steps.get("learner_mask")
             values = {}
+
             for field in self.report_fields:
                 value = steps[field]
                 if valid is not None:
                     value = value[valid.bool()]
                 values[field] = value.mean().item()
+
             metrics[self.section] = values
+            
         return rollout.with_steps(steps), metrics

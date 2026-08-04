@@ -19,6 +19,7 @@ ResetTransform = Callable[[TensorBatch, ResetContext], TensorBatch]
 
 
 class DatasetResetSampler:
+
     def __init__(
         self,
         dataset:     TensorDataset,
@@ -35,6 +36,7 @@ class DatasetResetSampler:
         self.dataset = dataset
         self.transforms = tuple(transforms)
         self.probability = probability
+
         if not all(callable(transform) for transform in self.transforms):
             raise TypeError("reset transforms must be callable")
 
@@ -52,11 +54,13 @@ class DatasetResetSampler:
 
         environment_indices = reset_mask.nonzero(as_tuple=True)[0]
         count = environment_indices.numel()
+
         if not count:
             return None
 
         if self.probability == 0.0:
             return None
+        
         if self.probability < 1.0:
             selected = th.rand(
                 count,
@@ -65,6 +69,7 @@ class DatasetResetSampler:
             ) < self.probability
             environment_indices = environment_indices[selected]
             count = environment_indices.numel()
+            
             if not count:
                 return None
 

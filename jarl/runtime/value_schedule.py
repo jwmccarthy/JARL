@@ -9,6 +9,7 @@ ValueSetter = Callable[[float], None]
 
 @dataclass(frozen=True)
 class ConstantSchedule:
+
     value: float
 
     def __call__(self, progress: float) -> float:
@@ -17,6 +18,7 @@ class ConstantSchedule:
 
 @dataclass(frozen=True)
 class LinearSchedule:
+
     start: float
     end:   float
 
@@ -26,6 +28,7 @@ class LinearSchedule:
 
 @dataclass(frozen=True)
 class MappedSchedule:
+
     schedule:  ValueSchedule
     transform: Callable[[float], float]
 
@@ -35,6 +38,7 @@ class MappedSchedule:
 
 @dataclass(frozen=True)
 class ScheduledValue:
+    
     name:     str
     schedule: ValueSchedule
     setter:   ValueSetter
@@ -70,6 +74,7 @@ class ScheduledValue:
 
 
 class ValueScheduler:
+
     def __init__(
         self,
         *values: ScheduledValue,

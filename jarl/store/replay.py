@@ -9,10 +9,10 @@ class ReplayBuffer(TensorStorage):
 
     def __init__(
         self,
-        capacity: int,
-        num_envs: int,
+        capacity:       int,
+        num_envs:       int,
         storage_device: str | th.device = "cpu",
-        sample_device: str | th.device | None = None,
+        sample_device:  str | th.device | None = None,
     ) -> None:
         super().__init__(capacity, num_envs, storage_device)
 

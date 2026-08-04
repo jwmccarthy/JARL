@@ -1,63 +1,47 @@
 import copy
 import random
-from collections import OrderedDict
-from concurrent.futures import Future, ThreadPoolExecutor
-from pathlib import Path
-
 import torch as th
 
+from pathlib import Path
+from collections import OrderedDict
+
+from jarl.data.records import PolicyOutput
 from jarl.collect.capture import CaptureContext, build_record
 from jarl.collect.runner import _make_env_step, _reset_state
-from jarl.data.records import PolicyOutput
 
 
 class SnapshotPool:
+
     def __init__(
         self,
         policy,
-        max_size:                  int,
-        snapshot_interval:         int,
-        initial_snapshot_interval: int | None = None,
-        active_cache_size:         int = 4,
-        seed:                      int = 0,
-        checkpoint_dir:            Path | None = None,
+        max_size:          int,
+        snapshot_interval: int,
+        active_cache_size: int = 4,
+        seed:              int = 0,
+        checkpoint_dir:    Path | str | None = Path("./checkpoints/"),
     ) -> None:
         if max_size < 3:
             raise ValueError("snapshot pool must retain at least three policies")
         if snapshot_interval < 1 or active_cache_size < 1:
             raise ValueError("snapshot pool settings must be positive")
-        if initial_snapshot_interval is not None and initial_snapshot_interval < 1:
-            raise ValueError("initial snapshot interval must be positive")
 
         self.max_size = max_size
         self.snapshot_interval = snapshot_interval
-        self.initial_snapshot_interval = (
-            snapshot_interval
-            if initial_snapshot_interval is None
-            else initial_snapshot_interval
-        )
         self.active_cache_size = active_cache_size
         self._random = random.Random(seed)
-        self.checkpoint_dir = checkpoint_dir
-        if self.checkpoint_dir is not None:
-            if self.checkpoint_dir.exists() and any(self.checkpoint_dir.iterdir()):
-                raise ValueError(
-                    f"snapshot directory is not empty: {self.checkpoint_dir}"
-                )
-            self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-        self._snapshots = OrderedDict()
-        self._timesteps = {}
-        self._checkpoint_paths = {}
-        self._checkpoint_writer = (
-            ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarl-snapshot")
-            if checkpoint_dir is not None
-            else None
+        self.checkpoint_dir = (
+            None if checkpoint_dir is None else Path(checkpoint_dir)
         )
-        self._checkpoint_writes: dict[int, Future] = {}
+
+        self._make_checkpoint_dir()
+
+        self._archive = {}
+        self._snapshots = OrderedDict()
         self._active = OrderedDict()
         self._next_id = 0
         self._last_snapshot = 0
+
         self.add(policy, timesteps=0)
 
     @property
@@ -66,7 +50,16 @@ class SnapshotPool:
 
     @property
     def archive_ids(self) -> tuple[int, ...]:
-        return tuple(self._timesteps)
+        return tuple(self._archive)
+
+    def _make_checkpoint_dir(self) -> None:
+        if self.checkpoint_dir is None:
+            return
+        if self.checkpoint_dir.exists() and any(self.checkpoint_dir.iterdir()):
+            raise ValueError(
+                f"snapshot directory is not empty: {self.checkpoint_dir}"
+            )
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     def add(
         self,
@@ -74,58 +67,42 @@ class SnapshotPool:
         timesteps:     int,
         protected_ids: tuple[int, ...] = (),
     ) -> int:
-        if self._next_id and timesteps <= self._last_snapshot:
-            raise ValueError("snapshot timesteps must be strictly increasing")
-
-        self._reap_checkpoint_writes()
         snapshot = copy.deepcopy(policy).eval().requires_grad_(False)
         if self.checkpoint_dir is None:
             snapshot.to("cpu")
+
         snapshot_id = self._next_id
         self._next_id += 1
-        self._snapshots[snapshot_id] = snapshot
-        self._timesteps[snapshot_id] = timesteps
         self._last_snapshot = timesteps
+        self._snapshots[snapshot_id] = snapshot
 
+        path = None
         if self.checkpoint_dir is not None:
-            checkpoint_path = self.checkpoint_dir / f"policy_{timesteps:012d}.pt"
-            temporary_path = checkpoint_path.with_suffix(".pt.tmp")
-            self._checkpoint_paths[snapshot_id] = checkpoint_path
-            self._checkpoint_writes[snapshot_id] = self._checkpoint_writer.submit(
-                self._write_checkpoint,
-                snapshot.state_dict(),
-                temporary_path,
-                checkpoint_path,
-            )
+            path = self.checkpoint_dir / f"policy_{timesteps:012d}.pt"
+            temporary = path.with_suffix(".pt.tmp")
+            th.save(snapshot.state_dict(), temporary)
+            temporary.replace(path)
+        self._archive[snapshot_id] = (timesteps, path)
 
         protected = set(protected_ids) | {snapshot_id}
         while len(self._snapshots) > self.max_size:
-            removable = [key for key in self._snapshots if key not in protected]
-            if not removable:
+            old_id = next(
+                (key for key in self._snapshots if key not in protected), None
+            )
+            if old_id is None:
                 break
-            removed_id = removable[0]
-            self._snapshots.pop(removed_id)
+            self._snapshots.pop(old_id)
+            self._active.pop(old_id, None)
             if self.checkpoint_dir is None:
-                self._timesteps.pop(removed_id)
-            self._active.pop(removed_id, None)
+                self._archive.pop(old_id)
 
         return snapshot_id
 
-    @staticmethod
-    def _write_checkpoint(state, temporary_path: Path, checkpoint_path: Path) -> None:
-        th.save(state, temporary_path)
-        temporary_path.replace(checkpoint_path)
-
-    def _reap_checkpoint_writes(self) -> None:
-        for snapshot_id, write in tuple(self._checkpoint_writes.items()):
-            if write.done():
-                write.result()
-                del self._checkpoint_writes[snapshot_id]
-
-    def close(self) -> None:
-        if self._checkpoint_writer is not None:
-            self._checkpoint_writer.shutdown(wait=True)
-            self._reap_checkpoint_writes()
+    def _opponent_candidates(self) -> list[int]:
+        ids = list(self._snapshots)
+        # Keep snapshot zero in the evaluation archive, but remove it from the
+        # training pool once a trained policy exists.
+        return ids[1:] if len(ids) > 1 and ids[0] == 0 else ids
 
     def maybe_add(
         self,
@@ -133,12 +110,7 @@ class SnapshotPool:
         timesteps:     int,
         protected_ids: tuple[int, ...] = (),
     ) -> bool:
-        interval = (
-            self.initial_snapshot_interval
-            if self._next_id == 1
-            else self.snapshot_interval
-        )
-        if timesteps - self._last_snapshot < interval:
+        if timesteps - self._last_snapshot < self.snapshot_interval:
             return False
         self.add(policy, timesteps, protected_ids)
         return True
@@ -147,59 +119,47 @@ class SnapshotPool:
         """Sample without replacement, weighting newer snapshots by rank."""
         if count < 1:
             raise ValueError("historical policy count must be positive")
-        ids = self._opponent_candidates()
-        selected = []
 
-        while ids and len(selected) < count:
-            # Linear rank weights favor recent policies without making older
-            # active opponents unreachable.
+        selected = []
+        ids = self._opponent_candidates()
+
+        for _ in range(min(count, len(ids))):
             index = self._random.choices(
                 range(len(ids)), weights=range(1, len(ids) + 1), k=1
             )[0]
             selected.append(ids.pop(index))
+
         return tuple(selected)
 
     def select_ids(self, count: int) -> tuple[int, ...]:
         """Select the most recent policies for the active opponent window."""
         if count < 1:
             raise ValueError("historical policy count must be positive")
-
-        ids = self._opponent_candidates()
-        return tuple(ids[-count:])
-
-    def _opponent_candidates(self) -> list[int]:
-        ids = list(self._snapshots)
-        # Snapshot zero remains available in a disk-backed evaluation archive,
-        # but stops occupying the training pool after a trained policy exists.
-        return ids[1:] if ids and ids[0] == 0 and len(ids) > 1 else ids
+        return tuple(self._opponent_candidates()[-count:])
 
     def timesteps(self, snapshot_id: int) -> int:
-        if snapshot_id not in self._timesteps:
-            raise KeyError(f"unknown snapshot {snapshot_id}")
-        return self._timesteps[snapshot_id]
+        try:
+            return self._archive[snapshot_id][0]
+        except KeyError:
+            raise KeyError(f"unknown snapshot {snapshot_id}") from None
 
     def policy(self, snapshot_id: int, device: th.device | str):
-        if snapshot_id not in self._timesteps:
+        archive = self._archive.get(snapshot_id)
+        if archive is None:
             raise KeyError(f"unknown snapshot {snapshot_id}")
 
-        if snapshot_id in self._active:
-            policy = self._active.pop(snapshot_id)
-            self._active[snapshot_id] = policy
-            return policy
+        cached = self._active.pop(snapshot_id, None)
+        if cached is not None:
+            self._active[snapshot_id] = cached
+            return cached
 
-        if snapshot_id in self._snapshots:
-            policy = copy.deepcopy(self._snapshots[snapshot_id])
+        snapshot = self._snapshots.get(snapshot_id)
+        if snapshot is not None:
+            policy = copy.deepcopy(snapshot)
         else:
-            checkpoint_path = self._checkpoint_paths.get(snapshot_id)
-            if checkpoint_path is None:
-                raise KeyError(f"snapshot {snapshot_id} is no longer available")
-            write = self._checkpoint_writes.pop(snapshot_id, None)
-            if write is not None:
-                write.result()
-
             policy = copy.deepcopy(next(iter(self._snapshots.values())))
             policy.load_state_dict(
-                th.load(checkpoint_path, map_location="cpu", weights_only=True)
+                th.load(archive[1], map_location="cpu", weights_only=True)
             )
 
         policy = policy.to(device).eval()
@@ -207,10 +167,13 @@ class SnapshotPool:
 
         while len(self._active) > self.active_cache_size:
             self._active.popitem(last=False)
+
         return policy
 
 
 class SelfPlayMatchmaker:
+    """Assign either the learner or a historical policy to each team."""
+
     def __init__(
         self,
         num_matches:      int,
@@ -234,78 +197,64 @@ class SelfPlayMatchmaker:
         self.current_fraction = current_fraction
         self.historical_fraction = 1.0 - current_fraction
         self.device = th.device(device)
-        self._historical_ids = th.as_tensor(
-            historical_ids, dtype=th.int64, device=self.device
-        )
-        self._historical_weights = th.arange(
-            1,
-            len(historical_ids) + 1,
-            dtype=th.float32,
-            device=self.device,
-        )
         self._generator = th.Generator(device=self.device).manual_seed(seed)
         self.learner_mask = th.ones(self.n_envs, dtype=th.bool, device=self.device)
         self.opponent_ids = th.full(
             (self.n_envs,), -1, dtype=th.int64, device=self.device
         )
         self.learner_count = self.n_envs
+        self.set_historical_ids(historical_ids)
         self.rematch()
-
-    def set_historical_ids(self, historical_ids: tuple[int, ...]) -> None:
-        if self.historical_fraction and not historical_ids:
-            raise ValueError("historical self-play requires at least one snapshot")
-        self._historical_ids = th.as_tensor(
-            historical_ids, dtype=th.int64, device=self.device
-        )
-        self._historical_weights = th.arange(
-            1,
-            len(historical_ids) + 1,
-            dtype=th.float32,
-            device=self.device,
-        )
 
     @property
     def historical_ids(self) -> tuple[int, ...]:
         return tuple(self._historical_ids.tolist())
 
+    def set_historical_ids(self, historical_ids: tuple[int, ...]) -> None:
+        if self.historical_fraction and not historical_ids:
+            raise ValueError("historical self-play requires at least one snapshot")
+
+        self._historical_ids = th.tensor(
+            historical_ids, dtype=th.int64, device=self.device
+        )
+        self._historical_weights = th.arange(
+            1, len(historical_ids) + 1, dtype=th.float32, device=self.device
+        )
+
     def rematch(self, done: th.Tensor | None = None) -> None:
         if done is None:
             matches = th.arange(self.num_matches, device=self.device)
         else:
-            done = th.as_tensor(done, dtype=th.bool, device=self.device)
-            if done.shape != (self.n_envs,):
-                raise ValueError(
-                    f"expected done shape {(self.n_envs,)}, got {done.shape}"
-                )
-            match_done = done.view(self.num_matches, self.players_per_match).any(-1)
-            matches = match_done.nonzero(as_tuple=True)[0]
+            matches = (
+                th.as_tensor(done, dtype=th.bool, device=self.device)
+                .view(self.num_matches, self.players_per_match)
+                .any(-1)
+                .nonzero(as_tuple=True)[0]
+            )
 
         if not matches.numel():
             return
 
-        learner = self.learner_mask.view(self.num_matches, self.players_per_match)
-        opponents = self.opponent_ids.view(self.num_matches, self.players_per_match)
+        shape = (self.num_matches, self.players_per_match)
+        learner = self.learner_mask.view(shape)
+        opponents = self.opponent_ids.view(shape)
         learner[matches] = True
         opponents[matches] = -1
 
-        historical = (
+        historical_matches = matches[
             th.rand(len(matches), generator=self._generator, device=self.device)
             < self.historical_fraction
-        )
-        historical_matches = matches[historical]
+        ]
         if not historical_matches.numel():
             self.learner_count = int(self.learner_mask.sum().item())
             return
 
         learner_team = th.randint(
-            0,
-            2,
+            0, 2,
             (len(historical_matches),),
             generator=self._generator,
             device=self.device,
         )
-        # IDs are chronological; linear rank weights give recent snapshots
-        # proportionally more matches while retaining coverage of older ones.
         selected = th.multinomial(
             self._historical_weights,
             len(historical_matches),
@@ -314,18 +263,20 @@ class SelfPlayMatchmaker:
         )
         snapshot_ids = self._historical_ids[selected]
 
-        left = 0
+        start = 0
         for team, size in enumerate(self.team_sizes):
-            right = left + size
-            opponent_matches = historical_matches[learner_team != team]
-            opponent_snapshots = snapshot_ids[learner_team != team]
-            learner[opponent_matches, left:right] = False
-            opponents[opponent_matches, left:right] = opponent_snapshots[:, None]
-            left = right
+            end = start + size
+            rows = learner_team != team
+            learner[historical_matches[rows], start:end] = False
+            opponents[historical_matches[rows], start:end] = snapshot_ids[rows, None]
+            start = end
+
         self.learner_count = int(self.learner_mask.sum().item())
 
 
 class SelfPlayRunner:
+    """Collect experience while routing historical actors to frozen policies."""
+
     def __init__(
         self,
         env,
@@ -365,10 +316,10 @@ class SelfPlayRunner:
     def reset(self):
         self.observation = self.env.reset()
         self.state = self.policy.initial_state(self.n_envs)
+
         for capture in self.captures:
-            reset_state = getattr(capture, "reset_state", None)
-            if reset_state is not None:
-                reset_state(self.n_envs)
+            capture.reset(self.n_envs)
+
         self.matchmaker.rematch()
         self._timestep_count = self.matchmaker.learner_count
         return self.observation
@@ -380,116 +331,122 @@ class SelfPlayRunner:
 
         observation = th.as_tensor(self.observation, device=self.policy.device)
         self._timestep_count = self.matchmaker.learner_count
-        policy_output = self._act(observation)
-        env_step = _make_env_step(self.env.step(policy_output.action))
+        output = self._act(observation)
+        env_step = _make_env_step(self.env.step(output.action))
         env_step.info = self._learner_episode_info(env_step)
-        context = CaptureContext(observation, self.state, policy_output, env_step)
+
+        context = CaptureContext(observation, self.state, output, env_step)
         record = build_record(context, self.captures)
         record["learner_mask"] = self.matchmaker.learner_mask
         self.buffer.append(record)
 
         self.observation = env_step.observation
-        self.state = _reset_state(policy_output.next_state, env_step.done)
+        self.state = _reset_state(output.next_state, env_step.done)
         self.matchmaker.rematch(env_step.done)
         return env_step
 
     def _learner_episode_info(self, env_step) -> dict:
         finished = env_step.done.nonzero(as_tuple=True)[0]
-
         if not len(finished):
             return env_step.info
 
         learner = self.matchmaker.learner_mask[finished].cpu().tolist()
-
         historical_matches = (
             self.matchmaker.opponent_ids.view(
-            self.matchmaker.num_matches,
-            self.matchmaker.players_per_match,
+                self.matchmaker.num_matches, self.matchmaker.players_per_match
             )
             .ge(0)
-            .any(dim=-1)
+            .any(-1)
         )
         historical = (
-            historical_matches[:, None]
-            .expand(-1, self.matchmaker.players_per_match)
-            .reshape(-1)[finished]
+            historical_matches
+            .repeat_interleave(self.matchmaker.players_per_match)[finished]
             .cpu()
             .tolist()
         )
 
         info = dict(env_step.info)
-
         for key, values in tuple(info.items()):
-            if isinstance(values, list) and len(values) == len(learner):
-                info[key] = [value for value, keep in zip(values, learner) if keep]
-            if (
-                key in ("reward", "length")
-                and isinstance(values, list)
-                and len(values) == len(learner)
-            ):
+            if not isinstance(values, list) or len(values) != len(learner):
+                continue
+
+            info[key] = [value for value, keep in zip(values, learner) if keep]
+
+            if key in ("reward", "length"):
                 info[f"historical_{key}"] = [
                     value
-                    for value, active, past in zip(values, learner, historical)
-                    if active and past
+                    for value, keep, historical in zip(values, learner, historical)
+                    if keep and historical
                 ]
-
+                
         return info
 
     def after_update(self, timesteps: int) -> None:
-        assigned = self.matchmaker.opponent_ids
-        assigned = assigned[assigned >= 0].unique().tolist()
-        protected_ids = tuple(set(assigned) | set(self.matchmaker.historical_ids))
+        added = self.opponent_pool.maybe_add(
+            self.snapshot_policy,
+            timesteps,
+            protected_ids=self.matchmaker.historical_ids,
+        )
 
-        if self.opponent_pool.maybe_add(
-            self.snapshot_policy, timesteps, protected_ids=protected_ids
-        ):
-            historical_ids = self.opponent_pool.select_ids(self.historical_policies)
-            self.matchmaker.set_historical_ids(historical_ids)
+        if not added:
+            return
+    
+        self.matchmaker.set_historical_ids(
+            self.opponent_pool.select_ids(self.historical_policies)
+        )
 
-    def close(self) -> None:
-        self.opponent_pool.close()
+    def _state_for(self, mask: th.Tensor):
+        return None if self.state is None else self.state[mask]
+
+    def _route(
+        self,
+        value: th.Tensor,
+        mask:  th.Tensor,
+        fill:  int | None,
+        device=None,
+    ) -> th.Tensor:
+        shape = (self.n_envs, *value.shape[1:])
+        routed = (
+            th.empty(shape, dtype=value.dtype, device=device or value.device)
+            if fill is None
+            else th.full(shape, fill, dtype=value.dtype, device=device or value.device)
+        )
+        routed[mask] = value
+
+        return routed
+
+    def _next_state(self, output: PolicyOutput, learner_mask: th.Tensor):
+        if self.state is None:
+            return None
+        
+        next_state = th.empty_like(self.state)
+        next_state[learner_mask] = output.next_state
+
+        return next_state
 
     def _act(self, observation: th.Tensor) -> PolicyOutput:
         learner_mask = self.matchmaker.learner_mask
-        learner_state = None if self.state is None else self.state[learner_mask]
-        learner_output = self.policy.act(observation[learner_mask], learner_state)
-
-        if learner_output.log_prob is None:
+        learner = self.policy.act(observation[learner_mask], self._state_for(learner_mask))
+        if learner.log_prob is None:
             raise ValueError("learner policy did not produce log probabilities")
 
-        action = th.empty(
-            (self.n_envs, *learner_output.action.shape[1:]),
-            dtype=learner_output.action.dtype,
-            device=observation.device,
-        )
-        log_prob = th.zeros(
-            (self.n_envs, *learner_output.log_prob.shape[1:]),
-            dtype=learner_output.log_prob.dtype,
-            device=observation.device,
-        )
-
-        action[learner_mask] = learner_output.action
-        log_prob[learner_mask] = learner_output.log_prob
-        next_state = self._next_state(learner_output, learner_mask)
+        action = self._route(learner.action, learner_mask, None, observation.device)
+        log_prob = self._route(learner.log_prob, learner_mask, 0, observation.device)
+        next_state = self._next_state(learner, learner_mask)
         extras = {
-            key: self._route_extra(value, learner_mask)
-            for key, value in learner_output.extras.items()
+            key: self._route(value, learner_mask, 0)
+            for key, value in learner.extras.items()
         }
         extras["learner_mask"] = learner_mask
 
         opponent_ids = self.matchmaker.opponent_ids
-
         for snapshot_id in opponent_ids[~learner_mask].unique().tolist():
-            opponent_mask = opponent_ids == snapshot_id
+            mask = opponent_ids == snapshot_id
             opponent = self.opponent_pool.policy(snapshot_id, observation.device)
-            opponent_state = None if self.state is None else self.state[opponent_mask]
-            opponent_output = opponent.act(observation[opponent_mask], opponent_state)
-            action[opponent_mask] = opponent_output.action
-
+            output = opponent.act(observation[mask], self._state_for(mask))
+            action[mask] = output.action
             if next_state is not None:
-                if opponent_output.next_state is None:
-                    raise ValueError("recurrent opponent did not produce a next state")
-                next_state[opponent_mask] = opponent_output.next_state
+                next_state[mask] = output.next_state
 
         return PolicyOutput(
             action=action,
@@ -497,32 +454,3 @@ class SelfPlayRunner:
             log_prob=log_prob,
             extras=extras,
         )
-
-    def _route_extra(
-        self,
-        value:        th.Tensor,
-        learner_mask: th.Tensor,
-    ) -> th.Tensor:
-        routed = th.zeros(
-            (self.n_envs, *value.shape[1:]),
-            dtype=value.dtype,
-            device=value.device,
-        )
-        routed[learner_mask] = value
-        return routed
-
-    def _next_state(
-        self,
-        learner_output: PolicyOutput,
-        learner_mask: th.Tensor,
-    ) -> th.Tensor | None:
-        if self.state is None:
-            if learner_output.next_state is not None:
-                raise ValueError("feed-forward policy unexpectedly produced state")
-            return None
-        if learner_output.next_state is None:
-            raise ValueError("recurrent learner did not produce a next state")
-
-        next_state = th.empty_like(self.state)
-        next_state[learner_mask] = learner_output.next_state
-        return next_state

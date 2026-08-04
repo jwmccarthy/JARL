@@ -14,8 +14,14 @@ from jarl.modules.base import CompositeNet
 
 
 class Policy(CompositeNet, ABC):
-    def __init__(self, head: Encoder, body: nn.Module, foot: nn.Module = None) -> None:
-        super().__init__(head, body, foot)
+
+    def __init__(
+        self,
+        foot: Encoder,
+        body: nn.Module,
+        head: nn.Module = None
+    ) -> None:
+        super().__init__(foot, body, head)
 
     def build(self, env: SyncGymEnv) -> Self:
         return super().build(env, action_space(env).flat_dim)
@@ -38,8 +44,8 @@ class Policy(CompositeNet, ABC):
 
     def act(
         self,
-        observation: th.Tensor,
-        state: th.Tensor | None = None,
+        observation:   th.Tensor,
+        state:         th.Tensor | None = None,
         *,
         deterministic: bool = False,
     ) -> PolicyOutput:
@@ -50,6 +56,7 @@ class Policy(CompositeNet, ABC):
 
         distribution = self.dist(observation)
         action = self._sample(distribution)
+        
         return PolicyOutput(
             action=action,
             log_prob=self._logprob(distribution, action),
@@ -58,10 +65,10 @@ class Policy(CompositeNet, ABC):
     def evaluate_actions(
         self,
         observation: th.Tensor,
-        action: th.Tensor,
-        state: th.Tensor | None = None,
+        action:      th.Tensor,
+        state:       th.Tensor | None = None,
         *,
-        reset: th.Tensor | None = None,
+        reset:       th.Tensor | None = None,
     ) -> Evaluation:
         if state is not None:
             raise ValueError("feed-forward policies do not accept recurrent state")
@@ -94,10 +101,14 @@ class Policy(CompositeNet, ABC):
 
 
 class CategoricalPolicy(Policy):
+
     def __init__(
-        self, head: nn.Module, body: nn.Module, foot: nn.Module = None
+        self,
+        foot: nn.Module,
+        body: nn.Module,
+        head: nn.Module = None
     ) -> None:
-        super().__init__(head, body, foot)
+        super().__init__(foot, body, head)
 
     def dist(self, observation: th.Tensor) -> Distribution:
         return Categorical(logits=self.model(observation))
@@ -114,12 +125,12 @@ class MultiCategoricalPolicy(Policy):
 
     def __init__(
         self,
-        head:         nn.Module,
-        body:         nn.Module,
-        foot:         nn.Module = None,
+        foot: nn.Module,
+        body: nn.Module,
+        head: nn.Module = None,
         action_codec=None,
     ) -> None:
-        super().__init__(head, body, foot)
+        super().__init__(foot, body, head)
         self.action_codec = action_codec
         self._composed = False
 
@@ -128,11 +139,13 @@ class MultiCategoricalPolicy(Policy):
         return CompositeNet.build(self, env, output_dim)
 
     def build_composed(self, env: SyncGymEnv, in_dim: int) -> Self:
-        if self.foot is None or not hasattr(self.foot, "build"):
-            raise TypeError("composed policy requires a buildable foot")
+        if self.head is None or not hasattr(self.head, "build"):
+            raise TypeError("composed policy requires a buildable head")
+        
         output_dim = self._configure_actions(env)
-        self.foot.build(in_dim, output_dim)
+        self.head.build(in_dim, output_dim)
         self._composed = True
+
         return self
 
     def _configure_actions(self, env: SyncGymEnv) -> int:
@@ -143,9 +156,11 @@ class MultiCategoricalPolicy(Policy):
 
         self.action_shape = space.shape
         self.sizes = tuple(int(n) for n in space.nvec.flatten().tolist())
+
         if self.action_codec is not None:
             if self.action_codec.action_shape != self.action_shape:
                 raise ValueError("action codec shape does not match environment actions")
+            
         return sum(self.sizes)
 
     def initial_state(self, batch_size: int):
@@ -153,13 +168,14 @@ class MultiCategoricalPolicy(Policy):
 
     def act(
         self,
-        observation: th.Tensor,
-        state:       th.Tensor | None = None,
+        observation:   th.Tensor,
+        state:         th.Tensor | None = None,
         *,
         deterministic: bool = False,
     ) -> PolicyOutput:
         if not self._composed:
             return super().act(observation, state, deterministic=deterministic)
+        
         features, next_state = self.body_features(observation, state)
         output = self.act_from_features(
             features,
@@ -167,6 +183,7 @@ class MultiCategoricalPolicy(Policy):
             deterministic=deterministic,
         )
         output.next_state = next_state
+
         return output
 
     def evaluate_actions(
@@ -181,7 +198,9 @@ class MultiCategoricalPolicy(Policy):
             return super().evaluate_actions(
                 observation, action, state, reset=reset
             )
+        
         features, _ = self.body_features(observation, state, reset)
+
         return self.evaluate_from_features(features, observation, action)
 
     def body_features(
@@ -190,7 +209,8 @@ class MultiCategoricalPolicy(Policy):
         state:       th.Tensor | None = None,
         reset:       th.Tensor | None = None,
     ) -> tuple[th.Tensor, th.Tensor | None]:
-        features = self.head(observation)
+        features = self.foot(observation)
+
         if hasattr(self.body, "initial_state"):
             if (
                 state is not None
@@ -198,9 +218,12 @@ class MultiCategoricalPolicy(Policy):
                 and th.is_autocast_enabled()
             ):
                 state = state.to(features.dtype)
+
             return self.body(features, state, reset)
+        
         if state is not None or reset is not None:
             raise ValueError("stateless policy body does not accept state")
+        
         return self.body(features), None
 
     def act_from_features(
@@ -210,13 +233,14 @@ class MultiCategoricalPolicy(Policy):
         *,
         deterministic: bool = False,
     ) -> PolicyOutput:
-        logits = self.foot(features)
+        logits = self.head(features)
         distributions = self._grouped_distributions(logits, observation)
         action = th.empty(
             (*logits.shape[:-1], len(self.sizes)),
             dtype=th.int64,
             device=logits.device,
         )
+
         for indices, distribution in distributions:
             selected = (
                 distribution.logits.argmax(-1)
@@ -224,8 +248,10 @@ class MultiCategoricalPolicy(Policy):
                 else distribution.sample()
             )
             action[..., list(indices)] = selected
+
         log_prob = self._grouped_logprob(distributions, action)
         action = action.reshape(*action.shape[:-1], *self.action_shape)
+
         return PolicyOutput(
             action=action,
             log_prob=log_prob,
@@ -237,7 +263,7 @@ class MultiCategoricalPolicy(Policy):
         observation: th.Tensor,
         action:      th.Tensor,
     ) -> Evaluation:
-        logits = self.foot(features)
+        logits = self.head(features)
         distributions = self._grouped_distributions(logits, observation)
         entropies = [
             (indices, distribution.entropy())
@@ -248,8 +274,10 @@ class MultiCategoricalPolicy(Policy):
             dtype=entropies[0][1].dtype,
             device=logits.device,
         )
+
         for indices, entropy in entropies:
             factor_entropy[..., list(indices)] = entropy
+
         return Evaluation(
             log_prob=self._grouped_logprob(distributions, action),
             entropy=factor_entropy.sum(dim=-1),
@@ -263,10 +291,13 @@ class MultiCategoricalPolicy(Policy):
     ) -> list[tuple[tuple[int, ...], Categorical]]:
         split_logits = logits.split(self.sizes, dim=-1)
         split_masks = None
+
         if self.action_codec is not None:
             mask = self.action_codec.mask(observation)
+
             if mask.shape != logits.shape or mask.dtype != th.bool:
                 raise ValueError("action codec returned an invalid mask")
+            
             split_masks = mask.split(self.sizes, dim=-1)
 
         distributions = []
@@ -275,12 +306,15 @@ class MultiCategoricalPolicy(Policy):
                 index for index, value in enumerate(self.sizes) if value == size
             )
             grouped = th.stack([split_logits[index] for index in indices], dim=-2)
+
             if split_masks is not None:
                 valid = th.stack(
                     [split_masks[index] for index in indices], dim=-2
                 )
                 grouped = grouped.masked_fill(~valid, th.finfo(grouped.dtype).min)
+
             distributions.append((indices, Categorical(logits=grouped)))
+
         return distributions
 
     def _grouped_logprob(
@@ -300,14 +334,19 @@ class MultiCategoricalPolicy(Policy):
         observation: th.Tensor | None = None,
     ) -> list[Distribution]:
         split_logits = logits.split(self.sizes, dim=-1)
+
         if self.action_codec is None:
             return [Categorical(logits=value) for value in split_logits]
         if observation is None:
             raise ValueError("masked policy requires observations")
+        
         mask = self.action_codec.mask(observation)
+
         if mask.shape != logits.shape or mask.dtype != th.bool:
             raise ValueError("action codec returned an invalid mask")
+        
         split_masks = mask.split(self.sizes, dim=-1)
+
         return [
             Categorical(
                 logits=value.masked_fill(~valid, th.finfo(value.dtype).min)
@@ -346,9 +385,12 @@ class MultiCategoricalPolicy(Policy):
 
 class DiagonalGaussianPolicy(Policy):
     def __init__(
-        self, head: nn.Module, body: nn.Module, foot: nn.Module = None
+        self, 
+        foot: nn.Module,
+        body: nn.Module,
+        head: nn.Module = None
     ) -> None:
-        super().__init__(head, body, foot)
+        super().__init__(foot, body, head)
 
     def build(self, env: SyncGymEnv) -> Self:
         super().build(env)
@@ -377,12 +419,12 @@ class DiagonalGaussianPolicy(Policy):
 class NoisyContinuousPolicy(Policy):
     def __init__(
         self,
-        head: nn.Module,
-        body: nn.Module,
-        foot: nn.Module = None,
+        foot:  nn.Module,
+        body:  nn.Module,
+        head:  nn.Module = None,
         scale: float = 0.1,
     ) -> None:
-        super().__init__(head, body, foot)
+        super().__init__(foot, body, head)
         self.scale = scale
 
     def dist(self, observation: th.Tensor) -> Distribution:
@@ -397,8 +439,8 @@ class NoisyContinuousPolicy(Policy):
 
     def act(
         self,
-        observation: th.Tensor,
-        state: th.Tensor | None = None,
+        observation:   th.Tensor,
+        state:         th.Tensor | None = None,
         *,
         deterministic: bool = False,
     ) -> PolicyOutput:

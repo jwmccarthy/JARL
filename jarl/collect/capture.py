@@ -1,5 +1,6 @@
-from dataclasses import dataclass
 import torch as th
+from dataclasses import dataclass
+from abc import ABC, abstractmethod
 
 from jarl.data.records import EnvStep, PolicyOutput
 
@@ -12,26 +13,42 @@ class CaptureContext:
     env_step:      EnvStep
 
 
-class LogProbCapture:
+class CaptureBase(ABC):
+
+    @abstractmethod
+    def _capture(self, context: CaptureContext) -> dict[str, th.Tensor]:
+        ...
+
+    def reset(self, batch_size: int) -> None:
+        return
+
     def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
+        return self._capture(context)
+
+
+class LogProbCapture(CaptureBase):
+
+    def _capture(self, context: CaptureContext) -> dict[str, th.Tensor]:
         if context.policy_output.log_prob is None:
             raise ValueError("policy did not produce an action log probability")
         return {"old_log_prob": context.policy_output.log_prob}
 
 
-class RecurrentStateCapture:
-    def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
+class RecurrentStateCapture(CaptureBase):
+
+    def _capture(self, context: CaptureContext) -> dict[str, th.Tensor]:
         if context.state is None:
             raise ValueError("cannot capture an empty recurrent state")
         return {"policy_state": context.state}
 
 
-class CriticCapture:
+class CriticCapture(CaptureBase):
+
     def __init__(self, critic) -> None:
         self.critic = critic
 
     @th.no_grad()
-    def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
+    def _capture(self, context: CaptureContext) -> dict[str, th.Tensor]:
         next_obs = th.as_tensor(
             context.env_step.next_obs,
             device=context.observation.device,
@@ -46,19 +63,22 @@ class CriticCapture:
                 context.state,
             )
 
+        next_state = context.plicy_output.next_state
+        critic_obs = next_obs
+        critic_state = next_state
+
+        if learner_mask is not None:
+            critic_obs = critic_obs[learner_mask]
+            critic_state = None if critic_state is None else critic_state[learner_mask]
+
+        critic_value = self.critic.value(critic_obs, critic_state)
+
         if learner_mask is None:
-            baseline_next_value = self.critic.value(
-                next_obs,
-                context.policy_output.next_state,
-            )
+            baseline_next_value = critic_value
         else:
-            baseline_next_value = th.zeros_like(baseline_value)
-            next_state = context.policy_output.next_state
-            learner_state = None if next_state is None else next_state[learner_mask]
-            baseline_next_value[learner_mask] = self.critic.value(
-                next_obs[learner_mask],
-                learner_state,
-            )
+            baseline_next_value = th.zeros_like(baseline_value).index_put(
+                (learner_mask,), critic_value
+            ),
 
         return {
             "baseline_value":      baseline_value,
@@ -66,14 +86,14 @@ class CriticCapture:
         }
 
 
-class RecurrentCriticCapture:
+class RecurrentCriticCapture(CaptureBase):
     """Capture values using recurrent critic state independent from the policy."""
 
     def __init__(self, critic) -> None:
         self.critic = critic
         self.state = None
 
-    def reset_state(self, batch_size: int) -> None:
+    def reset(self, batch_size: int) -> None:
         self.state = self.critic.initial_state(batch_size)
         if self.state is None:
             raise ValueError("recurrent critic capture requires a recurrent critic")
@@ -104,8 +124,8 @@ class RecurrentCriticCapture:
             self.state[done] = 0
 
         return {
-            "critic_state": critic_state,
-            "baseline_value": baseline_value,
+            "critic_state":        critic_state,
+            "baseline_value":      baseline_value,
             "baseline_next_value": baseline_next_value,
         }
 

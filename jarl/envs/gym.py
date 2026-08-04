@@ -9,15 +9,20 @@ from jarl.envs.space import torch_space
 
 
 class SyncGymEnv:
-    def __init__(self, env_func: Callable[[Any], gym.Env], n_envs: int = 1) -> None:
+
+    def __init__(
+        self, 
+        env_func: Callable[[Any], gym.Env], 
+        n_envs:   int = 1
+    ) -> None:
         self.n_envs = n_envs
         self.envs = [env_func() for _ in range(n_envs)]
 
-        # wrap env spaces
+        # Wrap env spaces
         self.obs_space = torch_space(self.envs[0].observation_space)
         self.act_space = torch_space(self.envs[0].action_space)
 
-        # storage for transition values
+        # Storage for transition values
         self.observation = np.empty(
             (n_envs, *self.obs_space.shape),
             dtype=np.float32,
@@ -38,7 +43,7 @@ class SyncGymEnv:
 
         reward, length = [], []
 
-        # step environments
+        # Step environments
         for index, (env, action) in enumerate(zip(self.envs, actions)):
             observation, current_reward, terminated, truncated, info = env.step(action)
             self.observation[index] = observation
@@ -49,21 +54,22 @@ class SyncGymEnv:
             done = terminated | truncated
             self.next_observation[index] = env.reset()[0] if done else observation
 
-            # pre-wrapper episodic reward
+            # Pre-wrapper episodic reward
             if done and info:
                 reward.append(info.reward)
                 length.append(info.length)
 
         done = self.terminated | self.truncated
+
         return (
             self.next_observation.copy(),
             self.reward.copy(),
             self.terminated.copy(),
             self.truncated.copy(),
             {
-                "reward": reward,
-                "length": length,
-                "final_obs": self.observation.copy(),
+                "reward":     reward,
+                "length":     length,
+                "final_obs":  self.observation.copy(),
                 "_final_obs": done.copy(),
             },
         )

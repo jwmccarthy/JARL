@@ -8,6 +8,7 @@ from jarl.store.base import TensorStorage
 
 @dataclass(frozen=True)
 class Rollout:
+    
     steps: TensorBatch
 
     def with_steps(self, steps: TensorBatch) -> "Rollout":
@@ -17,9 +18,9 @@ class Rollout:
 class RolloutBuffer(TensorStorage):
     def __init__(
         self,
-        horizon: int,
-        num_envs: int,
-        device: str | th.device,
+        horizon:        int,
+        num_envs:       int,
+        device:         str | th.device,
         copy_on_finish: bool = True,
     ) -> None:
         super().__init__(horizon, num_envs, device)

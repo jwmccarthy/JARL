@@ -4,6 +4,9 @@ import torch as th
 
 from jarl.data.batch import TensorBatch
 from jarl.learn.update import LossOutput
+from jarl.modules.actor_critic import ActorCritic
+from jarl.modules.operator import Critic
+from jarl.modules.policy import Policy
 from jarl.sample.rollout import SequenceBatch
 
 
@@ -17,85 +20,99 @@ class SPOConfig:
 
 
 class SPOLoss:
+    
     def __init__(
         self,
-        policy,
-        critic,
+        policy: Policy,
+        critic: Critic | None = None,
         config: SPOConfig = SPOConfig(),
     ) -> None:
+        if isinstance(policy, ActorCritic) != (critic is None):
+            raise ValueError(
+                "ActorCritic requires no critic; standalone policies require one"
+            )
+
         self.policy = policy
         self.critic = critic
         self.config = config
         if config.ratio_epsilon <= 0:
             raise ValueError("ratio epsilon must be positive")
 
+    def after_update(self) -> None:
+        return
+
     def __call__(self, sample: TensorBatch | SequenceBatch) -> LossOutput:
         batch, state, critic_state, reset, valid = self._unpack_sample(sample)
 
-        evaluation = self.policy.evaluate_actions(
-            batch["observation"],
-            batch["action"],
+        evaluation, value = self._evaluate(
+            batch,
             state,
-            reset=reset,
+            critic_state,
+            reset,
         )
-        value = evaluation.value
 
-        if value is None:
-            value = self.critic.evaluate_values(
-                batch["observation"],
-                critic_state,
-                reset=reset,
+        log_prob = evaluation.log_prob.float()
+        entropy = evaluation.entropy.float()
+        value = value.float()
+
+        advantage = batch["advantage"][valid]
+        if self.config.normalize_advantage:
+            advantage = (advantage - advantage.mean()) / (
+                advantage.std(unbiased=False) + 1e-8
             )
-
-        advantage = self._normalize_advantage(batch["advantage"][valid])
-        log_ratio = evaluation.log_prob[valid] - batch["old_log_prob"][valid]
+        log_ratio = log_prob[valid] - batch["old_log_prob"][valid]
         ratio = log_ratio.exp()
 
         policy_loss = self._policy_loss(advantage, ratio)
         value_loss = self._value_loss(value[valid], batch, valid)
-        entropy = evaluation.entropy[valid].mean()
+        entropy = entropy[valid].mean()
         loss = (
             policy_loss
             + self.config.value_coef * value_loss
             - self.config.entropy_coef * entropy
         )
 
-        with th.no_grad():
-            approx_kl = ((ratio - 1) - log_ratio).mean()
+        metrics = {
+            "policy_loss": policy_loss,
+            "critic_loss": value_loss,
+            "entropy": entropy,
+            "approx_kl": ((ratio - 1) - log_ratio).mean().detach(),
+        }
 
-        return LossOutput(
-            loss,
-            {
-                "policy_loss": policy_loss,
-                "critic_loss": value_loss,
-                "entropy": entropy,
-                "approx_kl": approx_kl,
-            },
+        return LossOutput(loss, metrics)
+
+    def _evaluate(self, batch, state, critic_state, reset):
+        evaluation = self.policy.evaluate_actions(
+            batch["observation"],
+            batch["action"],
+            state,
+            reset=reset,
         )
+        if (value := evaluation.value) is None:
+            value = self.critic.evaluate_values(
+                batch["observation"],
+                critic_state,
+                reset=reset,
+            )
+        return evaluation, value
 
     @staticmethod
     def _unpack_sample(sample: TensorBatch | SequenceBatch):
-        if isinstance(sample, SequenceBatch):
-            critic_state = sample.initial_critic_state
-            if critic_state is None:
-                critic_state = sample.initial_state
-            return (
-                sample.steps,
-                sample.initial_state,
-                critic_state,
-                sample.reset,
-                sample.valid,
-            )
+        if not isinstance(sample, SequenceBatch):
+            valid = th.ones_like(sample["advantage"], dtype=th.bool)
+            return sample, None, None, None, valid
 
-        valid = th.ones_like(sample["advantage"], dtype=th.bool)
-        return sample, None, None, None, valid
+        critic_state = sample.initial_critic_state
+        if critic_state is None:
+            critic_state = sample.initial_state
 
-    def _normalize_advantage(self, advantage: th.Tensor) -> th.Tensor:
-        if self.config.normalize_advantage:
-            return (advantage - advantage.mean()) / (
-                advantage.std(unbiased=False) + 1e-8
-            )
-        return advantage
+        return (
+            sample.steps,
+            sample.initial_state,
+            critic_state,
+            sample.reset,
+            sample.valid,
+        )
 
     def _policy_loss(
         self,

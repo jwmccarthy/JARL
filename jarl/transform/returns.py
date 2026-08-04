@@ -39,6 +39,7 @@ def discounted_suffix_sum(
 
 
 class GAE:
+
     def __init__(
         self,
         gamma:        float = 0.99,
@@ -53,8 +54,10 @@ class GAE:
     def __call__(self, batch: TensorBatch, context: PrepareContext) -> TensorBatch:
         value = batch["baseline_value"]
         bootstrap = batch.get("bootstrap")
+
         if bootstrap is None:
             bootstrap = ~batch["terminated"]
+            
         bootstrap = bootstrap.to(value.dtype)
         continues = (~(batch["terminated"] | batch["truncated"])).to(value.dtype)
         delta = (
@@ -75,7 +78,12 @@ class GAE:
 
 
 class DiscountedReturns:
-    def __init__(self, gamma: float = 0.99, reward_field: str = "reward") -> None:
+
+    def __init__(
+        self,
+        gamma:        float = 0.99,
+        reward_field: str = "reward"
+    ) -> None:
         self.gamma = gamma
         self.reward_field = reward_field
 
@@ -89,12 +97,17 @@ class DiscountedReturns:
 
 
 class NStepTarget:
+
     def __init__(self, bootstrap, gamma: float = 0.99) -> None:
         self.bootstrap = bootstrap
         self.gamma = gamma
 
     @th.no_grad()
-    def __call__(self, window: TensorBatch, context: PrepareContext) -> TensorBatch:
+    def __call__(
+        self,
+        window:  TensorBatch,
+        context: PrepareContext
+    ) -> TensorBatch:
         if len(window.shape) < 2:
             raise ValueError("n-step targets require [time, batch, ...] windows")
 

@@ -9,6 +9,7 @@ from jarl.modules.encoder.base import Encoder
 
 
 class ImageEncoder(Encoder):
+    
     def __init__(self, cnn: nn.Module) -> None:
         super().__init__()
         self.cnn = cnn

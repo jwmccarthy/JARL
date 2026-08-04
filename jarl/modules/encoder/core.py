@@ -10,6 +10,7 @@ from jarl.modules.utils import init_layer
 
 
 class FlattenEncoder(Encoder):
+
     def build(self, env: SyncGymEnv) -> Self:
         super().build(env)
         space = observation_space(env)
@@ -24,8 +25,8 @@ class FlattenEncoder(Encoder):
 class LinearEncoder(Encoder):
     def __init__(
         self,
-        out_dim:   int,
-        func:      type[nn.Module] = nn.ReLU,
+        out_dim: int,
+        func:    type[nn.Module] = nn.ReLU,
         init_func=init_layer,
     ) -> None:
         super().__init__()

@@ -1,16 +1,22 @@
-from dataclasses import dataclass
-
 import torch as th
+
+from collections.abc import Generator
+from contextlib import contextmanager
+from dataclasses import dataclass
 
 from jarl.data.batch import TensorBatch
 from jarl.store.rollout import Rollout
 from jarl.transform.base import PrepareContext, apply_transforms
 
 
+MetricValue = float | th.Tensor
+Experience = Rollout | TensorBatch
+
+
 @dataclass(frozen=True)
 class LossOutput:
     loss:    th.Tensor
-    metrics: dict[str, float | th.Tensor]
+    metrics: dict[str, MetricValue]
 
 
 class Update:
@@ -31,76 +37,137 @@ class Update:
 
     def set_progress_callback(self, callback) -> None:
         self._progress_callback = callback
-        set_epoch_callback = getattr(self.sampler, "set_epoch_callback", None)
-        if set_epoch_callback is not None:
-            set_epoch_callback(self._epoch_finished)
 
-    def _epoch_finished(self) -> None:
-        if self._progress_callback is not None:
-            self._progress_callback.epoch_finished()
+        self.sampler.set_epoch_callback(self._epoch_finished)
 
-    def run(self, experience):
+    def run(self, experience: Experience):
         return experience, self.update(experience)
 
-    def update(self, experience: Rollout | TensorBatch) -> dict[str, dict[str, float]]:
-        if isinstance(experience, Rollout):
-            batch = experience.steps
-            context = PrepareContext(experience)
-        elif isinstance(experience, TensorBatch):
-            batch = experience
-            context = PrepareContext()
-        else:
-            raise TypeError("Update requires a Rollout or TensorBatch")
+    def update(
+        self,
+        experience: Experience,
+    ) -> dict[str, dict[str, float]]:
+        prepared_batch = self._prepare_batch(experience)
 
-        prepared_batch = apply_transforms(batch, self.transforms, context)
-
-        metric_totals: dict[str, float | th.Tensor] = {}
-        minibatch_count = 0
-
-        if self._progress_callback is not None:
-            self._progress_callback.start(self.sampler.epochs, self.section)
-
-        try:
-            for sample in self.sampler(prepared_batch):
-                loss_output = self.loss(sample)
-
-                if isinstance(loss_output, th.Tensor):
-                    loss_output = LossOutput(
-                        loss_output,
-                        {"loss": loss_output},
-                    )
-                elif not isinstance(loss_output, LossOutput):
-                    raise TypeError("loss must return a tensor or LossOutput")
-
-                self.optimizer_step(loss_output.loss)
-
-                for metric_name, metric_value in loss_output.metrics.items():
-                    if isinstance(metric_value, th.Tensor):
-                        metric_value = metric_value.detach()
-                    metric_totals[metric_name] = (
-                        metric_totals.get(metric_name, 0.0) + metric_value
-                    )
-
-                minibatch_count += 1
-        finally:
-            if self._progress_callback is not None:
-                self._progress_callback.finish()
+        with self._track_progress():
+            metric_totals, minibatch_count = self._process_minibatches(
+                prepared_batch
+            )
 
         if minibatch_count == 0:
             raise RuntimeError("sampler produced no minibatches")
 
-        self.optimizer_step.advance_scheduler()
-        after_update = getattr(self.loss, "after_update", None)
-        if after_update is not None:
-            after_update()
+        self._finalize_update()
 
-        metrics = {
-            metric_name: float(
-                (metric_value / minibatch_count).item()
-                if isinstance(metric_value, th.Tensor)
-                else metric_value / minibatch_count
+        return {
+            self.section: self._average_metrics(
+                metric_totals,
+                minibatch_count,
             )
-            for metric_name, metric_value in metric_totals.items()
         }
 
-        return {self.section: metrics}
+    def _prepare_batch(self, experience: Experience) -> TensorBatch:
+        batch, context = self._unpack_experience(experience)
+        return apply_transforms(batch, self.transforms, context)
+
+    @staticmethod
+    def _unpack_experience(
+        experience: Experience,
+    ) -> tuple[TensorBatch, PrepareContext]:
+        if isinstance(experience, Rollout):
+            return experience.steps, PrepareContext(experience)
+
+        if isinstance(experience, TensorBatch):
+            return experience, PrepareContext()
+
+        raise TypeError(
+            "Update requires a Rollout or TensorBatch, "
+            f"got {type(experience).__name__}"
+        )
+
+    def _process_minibatches(
+        self,
+        batch: TensorBatch,
+    ) -> tuple[dict[str, MetricValue], int]:
+        metric_totals: dict[str, MetricValue] = {}
+        minibatch_count = 0
+
+        for sample in self.sampler(batch):
+            output = self._normalize_loss_output(self.loss(sample))
+
+            self.optimizer_step(output.loss)
+            self._accumulate_metrics(metric_totals, output.metrics)
+
+            minibatch_count += 1
+
+        return metric_totals, minibatch_count
+
+    @staticmethod
+    def _normalize_loss_output(output) -> LossOutput:
+        if isinstance(output, th.Tensor):
+            return LossOutput(
+                loss=output,
+                metrics={"loss": output},
+            )
+
+        if isinstance(output, LossOutput):
+            return output
+
+        raise TypeError(
+            "loss must return a torch.Tensor or LossOutput, "
+            f"got {type(output).__name__}"
+        )
+
+    @staticmethod
+    def _accumulate_metrics(
+        totals:  dict[str, MetricValue],
+        metrics: dict[str, MetricValue],
+    ) -> None:
+        for name, value in metrics.items():
+            detached_value = (
+                value.detach()
+                if isinstance(value, th.Tensor)
+                else value
+            )
+            totals[name] = totals.get(name, 0.0) + detached_value
+
+    @staticmethod
+    def _average_metrics(
+        totals: dict[str, MetricValue],
+        count:  int,
+    ) -> dict[str, float]:
+        return {
+            name: Update._to_float(total / count)
+            for name, total in totals.items()
+        }
+
+    @staticmethod
+    def _to_float(value: MetricValue) -> float:
+        if isinstance(value, th.Tensor):
+            return float(value.item())
+
+        return float(value)
+
+    def _finalize_update(self) -> None:
+        self.optimizer_step.advance_scheduler()
+
+        self.loss.after_update()
+
+    @contextmanager
+    def _track_progress(self) -> Generator[None, None, None]:
+        callback = self._progress_callback
+
+        if callback is None:
+            yield
+            return
+
+        callback.start(self.sampler.epochs, self.section)
+        try:
+            yield
+        finally:
+            callback.finish()
+
+    def _epoch_finished(self) -> None:
+        callback = self._progress_callback
+        if callback is not None:
+            callback.epoch_finished()

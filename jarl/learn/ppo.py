@@ -4,6 +4,9 @@ import torch as th
 
 from jarl.data.batch import TensorBatch
 from jarl.learn.update import LossOutput
+from jarl.modules.actor_critic import ActorCritic
+from jarl.modules.operator import Critic
+from jarl.modules.policy import Policy
 from jarl.sample.rollout import SequenceBatch
 
 
@@ -19,146 +22,122 @@ class PPOConfig:
 
 
 class PPOLoss:
+    
     def __init__(
         self,
-        policy,
-        critic,
+        policy: Policy,
+        critic: Critic | None = None,
         config: PPOConfig = PPOConfig(),
     ) -> None:
+        if isinstance(policy, ActorCritic) != (critic is None):
+            raise ValueError(
+                "ActorCritic requires no critic; standalone policies require one"
+            )
+
         self.policy = policy
         self.critic = critic
         self.config = config
 
+    def after_update(self) -> None:
+        return
+
     def __call__(self, sample: TensorBatch | SequenceBatch) -> LossOutput:
         batch, state, critic_state, reset, valid = self._unpack_sample(sample)
-        use_bf16 = self.config.bf16 and batch.device.type == "cuda"
 
         with th.autocast(
             device_type=batch.device.type,
             dtype=th.bfloat16,
-            enabled=use_bf16,
+            enabled=self.config.bf16 and batch.device.type == "cuda",
         ):
-            if self._shares_trunk():
-                features, _ = self.policy.body_features(
-                    batch["observation"],
-                    state,
-                    reset,
-                )
-                evaluation = self.policy.evaluate_from_features(
-                    features,
-                    batch["observation"],
-                    batch["action"],
-                )
-                value = self.critic.value_from_features(features)
-            else:
-                evaluation = self.policy.evaluate_actions(
-                    batch["observation"],
-                    batch["action"],
-                    state,
-                    reset=reset,
-                )
-                value = evaluation.value
-                if value is None:
-                    value = self.critic.evaluate_values(
-                        batch["observation"],
-                        critic_state,
-                        reset=reset,
-                    )
+            evaluation, value = self._evaluate(
+                batch,
+                state,
+                critic_state,
+                reset,
+            )
 
-        # Keep PPO's ratios, reductions, and value loss in FP32.
-        evaluation.log_prob = evaluation.log_prob.float()
-        evaluation.entropy = evaluation.entropy.float()
+        log_prob = evaluation.log_prob.float()
+        entropy = evaluation.entropy.float()
         value = value.float()
 
-        advantage = self._normalize_advantage(batch["advantage"][valid])
-        log_ratio = evaluation.log_prob[valid] - batch["old_log_prob"][valid]
+        advantage = batch["advantage"][valid]
+        if self.config.normalize_advantage:
+            advantage = (advantage - advantage.mean()) / (
+                advantage.std(unbiased=False) + 1e-8
+            )
+
+        log_ratio = log_prob[valid] - batch["old_log_prob"][valid]
         ratio = log_ratio.exp()
 
         policy_loss = self._policy_loss(advantage, ratio)
         value_loss = self._value_loss(value[valid], batch, valid)
-        entropy = evaluation.entropy[valid].mean()
+        entropy = entropy[valid].mean()
+
         loss = (
             policy_loss
             + self.config.value_coef * value_loss
             - self.config.entropy_coef * entropy
         )
 
-        with th.no_grad():
-            approx_kl = ((ratio - 1) - log_ratio).mean()
-
         metrics = {
             "policy_loss": policy_loss,
             "critic_loss": value_loss,
             "entropy": entropy,
-            "approx_kl": approx_kl,
+            "approx_kl": ((ratio - 1) - log_ratio).mean().detach(),
         }
-        factor_entropy = evaluation.extras.get("factor_entropy")
-        if factor_entropy is not None:
-            action_shape = len(self.policy.action_shape)
-            action = batch["action"].reshape(
-                *batch["action"].shape[:-action_shape], -1
-            )
-            if factor_entropy.shape[:-1] != valid.shape:
-                raise ValueError("factor entropy shape does not match PPO validity mask")
-            names = self.config.action_names or tuple(
-                str(index) for index in range(factor_entropy.shape[-1])
-            )
-            if len(names) != factor_entropy.shape[-1]:
-                raise ValueError("action names do not match policy action factors")
-            for index, name in enumerate(names):
-                metrics[f"entropy_{name}"] = factor_entropy[..., index][valid].mean()
-                for value in range(self.policy.sizes[index]):
-                    metrics[f"action_{name}_{value}_rate"] = (
-                        action[..., index][valid].eq(value).float().mean()
-                    )
+        metrics.update(self._factor_metrics(evaluation, batch, valid))
 
         return LossOutput(loss, metrics)
 
-    def _shares_trunk(self) -> bool:
-        return (
-            self.policy.head is self.critic.head
-            and self.policy.body is self.critic.body
-            and hasattr(self.policy, "body_features")
-            and hasattr(self.policy, "evaluate_from_features")
-            and hasattr(self.critic, "value_from_features")
+    def _evaluate(self, batch, state, critic_state, reset):
+        observation = batch["observation"]
+        action = batch["action"]
+
+        evaluation = self.policy.evaluate_actions(
+            observation,
+            action,
+            state,
+            reset=reset,
         )
+        if (value := evaluation.value) is None:
+            value = self.critic.evaluate_values(
+                observation,
+                critic_state,
+                reset=reset,
+            )
+
+        return evaluation, value
 
     @staticmethod
     def _unpack_sample(sample: TensorBatch | SequenceBatch):
-        if isinstance(sample, SequenceBatch):
-            critic_state = sample.initial_critic_state
-            if critic_state is None:
-                critic_state = sample.initial_state
-            return (
-                sample.steps,
-                sample.initial_state,
-                critic_state,
-                sample.reset,
-                sample.valid,
-            )
+        if not isinstance(sample, SequenceBatch):
+            valid = th.ones_like(sample["advantage"], dtype=th.bool)
+            return sample, None, None, None, valid
 
-        valid = th.ones_like(sample["advantage"], dtype=th.bool)
-        return sample, None, None, None, valid
+        critic_state = sample.initial_critic_state
+        if critic_state is None:
+            critic_state = sample.initial_state
 
-    def _normalize_advantage(self, advantage: th.Tensor) -> th.Tensor:
-        if self.config.normalize_advantage:
-            return (advantage - advantage.mean()) / (
-                advantage.std(unbiased=False) + 1e-8
-            )
-        return advantage
+        return (
+            sample.steps,
+            sample.initial_state,
+            critic_state,
+            sample.reset,
+            sample.valid,
+        )
 
     def _policy_loss(
         self,
         advantage: th.Tensor,
         ratio: th.Tensor,
     ) -> th.Tensor:
+        clipped_ratio = ratio.clamp(
+            1 - self.config.clip,
+            1 + self.config.clip,
+        )
         return -th.minimum(
             advantage * ratio,
-            advantage
-            * ratio.clamp(
-                1 - self.config.clip,
-                1 + self.config.clip,
-            ),
+            advantage * clipped_ratio,
         ).mean()
 
     def _value_loss(
@@ -168,14 +147,48 @@ class PPOLoss:
         valid: th.Tensor,
     ) -> th.Tensor:
         target = batch["returns"][valid]
-        value_loss = (predicted_value - target).pow(2)
+        loss = (predicted_value - target).pow(2)
 
-        if self.config.value_clip is not None:
-            old_value = batch["baseline_value"][valid]
-            clipped = old_value + (predicted_value - old_value).clamp(
-                -self.config.value_clip,
-                self.config.value_clip,
-            )
-            value_loss = th.maximum(value_loss, (clipped - target).pow(2))
+        if self.config.value_clip is None:
+            return 0.5 * loss.mean()
 
-        return 0.5 * value_loss.mean()
+        old_value = batch["baseline_value"][valid]
+        clipped_value = old_value + (predicted_value - old_value).clamp(
+            -self.config.value_clip,
+            self.config.value_clip,
+        )
+        return 0.5 * th.maximum(
+            loss,
+            (clipped_value - target).pow(2),
+        ).mean()
+
+    def _factor_metrics(
+        self,
+        evaluation,
+        batch: TensorBatch,
+        valid: th.Tensor,
+    ) -> dict[str, th.Tensor]:
+        factor_entropy = evaluation.extras.get("factor_entropy")
+        if factor_entropy is None:
+            return {}
+
+        factor_count = factor_entropy.shape[-1]
+        names = self.config.action_names
+        if names is None:
+            names = tuple(str(index) for index in range(factor_count))
+        elif len(names) != factor_count:
+            raise ValueError("action names do not match policy action factors")
+
+        factor_entropy = factor_entropy[valid]
+        action = batch["action"].reshape(*valid.shape, -1)[valid]
+
+        metrics = {}
+        for index, name in enumerate(names):
+            metrics[f"entropy_{name}"] = factor_entropy[:, index].mean()
+            
+            for value in range(self.policy.sizes[index]):
+                metrics[f"action_{name}_{value}_rate"] = (
+                    action[:, index].eq(value).float().mean()
+                )
+
+        return metrics

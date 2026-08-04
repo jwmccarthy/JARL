@@ -5,12 +5,15 @@ from jarl.transform.base import PrepareContext
 
 
 class MaterializeValues:
+
     def __init__(self, estimator) -> None:
         self.estimator = estimator
 
     @th.no_grad()
     def __call__(
-        self, batch: TensorBatch, context: PrepareContext
+        self,
+        batch:   TensorBatch,
+        context: PrepareContext
     ) -> TensorBatch:
         if "policy_state" in batch:
             raise ValueError(

@@ -6,14 +6,18 @@ from jarl.transform.base import PrepareContext
 
 
 class SignRewards:
+
     @th.no_grad()
     def __call__(
-        self, batch: TensorBatch, context: PrepareContext
+        self,
+        batch:   TensorBatch,
+        context: PrepareContext
     ) -> TensorBatch:
         return batch.replace_fields(reward=batch["reward"].sign())
 
 
 class TeamSpirit:
+
     def __init__(
         self,
         num_matches: int,
@@ -32,10 +36,13 @@ class TeamSpirit:
 
     @th.no_grad()
     def __call__(
-        self, batch: TensorBatch, context: PrepareContext
+        self,
+        batch:   TensorBatch,
+        context: PrepareContext
     ) -> TensorBatch:
         reward = batch["reward"]
         expected = self.num_matches * self.players_per_match
+
         if reward.shape[-1] != expected:
             raise ValueError(
                 f"expected {expected} actor rewards, got {reward.shape[-1]}"
@@ -46,6 +53,7 @@ class TeamSpirit:
         )
         mixed = grouped.clone()
         left = 0
+
         for size in self.team_sizes:
             right = left + size
             team_reward = grouped[..., left:right]
@@ -71,6 +79,7 @@ class DiscriminatorReward:
             raise ValueError("unknown discriminator reward type")
         if reward_type == "negative_logit" and not from_logits:
             raise ValueError("negative logit reward requires logits")
+        
         self.discriminator = discriminator
         self.output_field = output_field
         self.from_logits = from_logits
@@ -79,7 +88,9 @@ class DiscriminatorReward:
 
     @th.no_grad()
     def __call__(
-        self, batch: TensorBatch, context: PrepareContext
+        self,
+        batch:   TensorBatch,
+        context: PrepareContext
     ) -> TensorBatch:
         score = self.discriminator(
             (batch["observation"], batch["next_obs"])
@@ -92,7 +103,9 @@ class DiscriminatorReward:
                 if self.from_logits
                 else -score.clamp_min(1e-8).log()
             )
+
         if self.mask_terminal:
             terminal = batch["terminated"].bool() | batch["truncated"].bool()
             reward = reward.masked_fill(terminal, 0.0)
+            
         return batch.with_fields(**{self.output_field: reward})

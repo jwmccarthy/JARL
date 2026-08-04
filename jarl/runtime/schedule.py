@@ -2,14 +2,15 @@ from jarl.store.rollout import RolloutBuffer
 
 
 class OnPolicySchedule:
+    
     def progress_vector_steps(self, buffer: RolloutBuffer) -> int:
         return buffer.horizon
 
     def expected_updates(
         self,
-        vector_steps: int,
+        vector_steps:          int,
         environments_per_step: int,
-        buffer: RolloutBuffer,
+        buffer:                RolloutBuffer,
     ) -> int:
         return (vector_steps + buffer.horizon - 1) // buffer.horizon
 
@@ -40,13 +41,14 @@ class OffPolicySchedule:
 
     def expected_updates(
         self,
-        vector_steps: int,
+        vector_steps:          int,
         environments_per_step: int,
         buffer,
     ) -> int:
         learning_starts = (
             self.learning_starts_env_steps + environments_per_step - 1
         ) // environments_per_step
+        
         first_update = max(1, learning_starts)
         interval = self.update_every_vector_steps
         first_update = ((first_update + interval - 1) // interval) * interval

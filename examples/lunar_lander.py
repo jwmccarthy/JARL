@@ -20,7 +20,7 @@ def make_environment():
 def build_policy_and_critic(environment, device: str):
     policy = (
         CategoricalPolicy(
-            head=FlattenEncoder(),
+            foot=FlattenEncoder(),
             body=MLP(
                 dims=[64, 64],
                 func=nn.Tanh,
@@ -32,7 +32,7 @@ def build_policy_and_critic(environment, device: str):
     )
     critic = (
         Critic(
-            head=FlattenEncoder(),
+            foot=FlattenEncoder(),
             body=MLP(
                 dims=[64, 64],
                 func=nn.Tanh,

@@ -1,4 +1,5 @@
 from jarl.modules.actor_critic import ActorCritic
+from jarl.modules.trunk import SharedTrunk
 from jarl.modules.core import CNN, MLP
 from jarl.modules.recurrent import GRU, LSTM, Recurrent
 
@@ -9,4 +10,5 @@ __all__ = [
     "MLP",
     "Recurrent",
     "ActorCritic",
+    "SharedTrunk",
 ]

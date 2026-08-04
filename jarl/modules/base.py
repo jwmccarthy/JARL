@@ -13,14 +13,14 @@ class CompositeNet(nn.Module):
 
     def __init__(
         self,
-        head: Encoder,
+        foot: Encoder,
         body: nn.Module,
-        foot: nn.Module = None
+        head: nn.Module = None
     ) -> None:
         super().__init__()
-        self.head = head
-        self.body = body
         self.foot = foot
+        self.body = body
+        self.head = head
         self.device = "cpu"
 
     def to(self, device: str) -> Self:
@@ -28,10 +28,10 @@ class CompositeNet(nn.Module):
         return super().to(device)
 
     def build(self, env: SyncGymEnv, out_dim: int = 1) -> Self:
-        self.head = self.head if self.head.built else self.head.build(env)
-        self.body.build(self.head.feats, out_dim)
-        self.foot = self.foot if self.foot else nn.Identity()
-        self.model = nn.Sequential(self.head, self.body, self.foot)
+        self.foot = self.foot if self.foot.built else self.foot.build(env)
+        self.body.build(self.foot.feats, out_dim)
+        self.head = self.head if self.head else nn.Identity()
+        self.model = nn.Sequential(self.foot, self.body, self.head)
         return self
     
     def forward(self, x: th.Tensor) -> th.Tensor:

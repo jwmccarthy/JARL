@@ -31,7 +31,7 @@ class MLP(nn.Module):
     def build(self, in_dim: int, out_dim: int | None = None) -> Self:
         self.model = nn.Sequential()
 
-        # dims define hidden layers
+        # Dims define hidden layers
         for next_dim in self.dims:
             layer = self.init_func(nn.Linear(in_dim, next_dim))
             self.model.extend([layer, self.func()])
@@ -59,8 +59,8 @@ class CNN(nn.Module):
 
     def __init__(
         self,
-        func: nn.Module = nn.ReLU,
-        dims: List[int] = [32, 64],
+        func:   nn.Module = nn.ReLU,
+        dims:   List[int] = [32, 64],
         kernel: List[int] = [8, 4],
         stride: List[int] = [4, 2],
         init_func=init_layer
@@ -80,20 +80,20 @@ class CNN(nn.Module):
     def build(self, in_dim: int = None) -> Self:
         self.model = nn.Sequential()
 
-        # lazy init conv layers if no input dim
+        # Lazy init conv layers if no input dim
         conv_type = nn.Conv2d if in_dim else nn.LazyConv2d
 
-        # dims, kernel, stride define conv layers
+        # Dims, kernel, stride define conv layers
         for dim, kern, strd in zip(self.dims, self.kernel, self.stride):
             params = (in_dim is not None) * (in_dim,) + (dim, kern)
             layer = self.init_func(conv_type(*params, stride=strd))
             self.model.extend([layer, self.func()])
             conv_type, in_dim = nn.Conv2d, dim
 
-        # flatten final layer outputs
+        # Flatten final layer outputs
         self.model.append(nn.Flatten(start_dim=-3))
 
-        # append additional layers
+        # Append additional layers
         self.model.extend(self.add_layer)
 
         return self

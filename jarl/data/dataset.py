@@ -1,7 +1,7 @@
-from dataclasses import dataclass
-from typing import Any
-
 import torch as th
+
+from typing import Any
+from dataclasses import dataclass
 
 from jarl.data.batch import TensorBatch
 
@@ -36,6 +36,7 @@ class TensorDataset:
             indices = slice(indices, indices + 1)
         elif isinstance(indices, th.Tensor) and indices.ndim == 0:
             indices = indices.reshape(1)
+
         return self.data[indices]
 
     def sample(
@@ -45,12 +46,14 @@ class TensorDataset:
     ) -> TensorBatch:
         if count < 1:
             raise ValueError("sample count must be positive")
+        
         indices = th.randint(
             len(self),
             (count,),
             device=self.device,
             generator=generator,
         )
+
         return self[indices]
 
     def to(

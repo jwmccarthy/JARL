@@ -6,7 +6,7 @@ class TensorStorage:
         self,
         capacity: int,
         num_envs: int,
-        device: str | th.device,
+        device:   str | th.device,
     ) -> None:
         if capacity < 1 or num_envs < 1:
             raise ValueError("storage dimensions must be positive")
