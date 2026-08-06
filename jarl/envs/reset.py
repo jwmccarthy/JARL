@@ -1,7 +1,7 @@
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
-
 import torch as th
+
+from dataclasses import dataclass
+from collections.abc import Callable, Iterable
 
 from jarl.data.batch import TensorBatch
 from jarl.data.dataset import TensorDataset

@@ -63,7 +63,7 @@ class CriticCapture(CaptureBase):
                 context.state,
             )
 
-        next_state = context.plicy_output.next_state
+        next_state = context.policy_output.next_state
         critic_obs = next_obs
         critic_state = next_state
 
@@ -78,7 +78,7 @@ class CriticCapture(CaptureBase):
         else:
             baseline_next_value = th.zeros_like(baseline_value).index_put(
                 (learner_mask,), critic_value
-            ),
+            )
 
         return {
             "baseline_value":      baseline_value,

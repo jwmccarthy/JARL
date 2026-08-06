@@ -1,5 +1,6 @@
 from jarl.log.logger import Logger
 from jarl.runtime.clock import Clock
+from jarl.runtime.episode import EpisodeTracker
 
 
 class Trainer:
@@ -13,6 +14,7 @@ class Trainer:
         checkpoint=None,
         value_scheduler=None,
         update_callback=None,
+        episode_tracker: EpisodeTracker | None = None,
     ) -> None:
         self.runner = runner
         self.buffer = buffer
@@ -22,6 +24,7 @@ class Trainer:
         self.checkpoint = checkpoint
         self.value_scheduler = value_scheduler
         self.update_callback = update_callback
+        self.episode_tracker = episode_tracker or EpisodeTracker()
         self.clock = Clock()
         self.learner.set_progress_callback(self.logger)
 
@@ -33,13 +36,14 @@ class Trainer:
             self.value_scheduler.advance(self.clock.env_steps)
 
         self.runner.reset()
+        self.episode_tracker.reset()
 
         if total_timesteps < self.runner.timestep_count:
             raise ValueError("total_timesteps is smaller than one vector step")
 
         with self.logger.progress(
             total_timesteps,
-            initial_timesteps=self.clock.env_steps,
+            initial_steps=self.clock.env_steps,
         ):
             while self.clock.env_steps < total_timesteps:
                 self._step(total_timesteps)
@@ -53,7 +57,10 @@ class Trainer:
         self.clock.env_steps += timesteps
         self.clock.episodes += int(env_step.done.sum())
         self.logger.advance(timesteps)
-        self.logger.episode(self.clock.env_steps, env_step.info)
+
+        episode_metrics = self.episode_tracker.update(env_step)
+        if episode_metrics:
+            self.logger.update(episode_metrics, step=self.clock.env_steps)
 
         if self.value_scheduler is not None:
             self.value_scheduler.advance(self.clock.env_steps)

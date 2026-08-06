@@ -18,17 +18,13 @@ class Critic(CompositeNet):
         head: nn.Module = None
     ) -> None:
         super().__init__(foot, body, head)
-        self._composed = False
 
     def build(self, env: SyncGymEnv) -> Self:
         return super().build(env)
 
-    def build_composed(self, env: SyncGymEnv, in_dim: int) -> Self:
-        if self.head is None or not hasattr(self.head, "build"):
-            raise TypeError("composed critic requires a buildable head")
-        self.head.build(in_dim, 1)
-        self._composed = True
-        return self
+    def _build_shared_head(self, in_dim: int) -> None:
+        self._build_head(in_dim, 1)
+        self.built = True
 
     def initial_state(self, batch_size: int) -> th.Tensor | None:
         if hasattr(self.body, "initial_state"):
@@ -41,15 +37,8 @@ class Critic(CompositeNet):
     def value(
         self, observation: th.Tensor, state: th.Tensor | None = None
     ) -> th.Tensor:
-        if self._composed:
-            features, _ = self.body_features(observation, state)
-            return self.value_from_features(features)
-        if state is not None:
-            raise ValueError(
-                "feed-forward critics do not accept recurrent state"
-            )
-
-        return self(observation)
+        features, _ = self.body_features(observation, state)
+        return self.value_from_features(features)
 
     def evaluate_values(
         self,
@@ -58,13 +47,8 @@ class Critic(CompositeNet):
         *,
         reset:       th.Tensor | None = None,
     ) -> th.Tensor:
-        if self._composed:
-            features, _ = self.body_features(observation, state, reset)
-            return self.value_from_features(features)
-        if reset is not None:
-            raise ValueError("feed-forward critics do not accept reset masks")
-
-        return self.value(observation, state)
+        features, _ = self.body_features(observation, state, reset)
+        return self.value_from_features(features)
 
     def value_from_features(self, features: th.Tensor) -> th.Tensor:
         return self.head(features).squeeze(-1)

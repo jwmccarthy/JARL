@@ -7,6 +7,7 @@ from collections.abc import Iterator, Mapping
 
 @dataclass(frozen=True)
 class TensorBatch(Mapping[str, th.Tensor]):
+
     data: dict[str, th.Tensor]
 
     def __post_init__(self) -> None:
@@ -50,6 +51,7 @@ class TensorBatch(Mapping[str, th.Tensor]):
 
     def with_fields(self, **fields: th.Tensor) -> "TensorBatch":
         duplicate = self.data.keys() & fields.keys()
+
         if duplicate:
             raise KeyError(f"fields already exist: {sorted(duplicate)}")
 
@@ -65,6 +67,7 @@ class TensorBatch(Mapping[str, th.Tensor]):
 
     def replace_fields(self, **fields: th.Tensor) -> "TensorBatch":
         missing = fields.keys() - self.data.keys()
+
         if missing:
             raise KeyError(f"fields do not exist: {sorted(missing)}")
 

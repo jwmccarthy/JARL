@@ -59,8 +59,8 @@ class ActorCritic(Policy):
         if self.trunk.feats is None:
             raise TypeError("shared trunk must expose its output feature count")
 
-        self.policy.build_composed(env, self.trunk.feats)
-        self.critic.build_composed(env, self.trunk.feats)
+        self.policy._build_shared_head(env, self.trunk.feats)
+        self.critic._build_shared_head(self.trunk.feats)
 
     def _build_independent(self, env: SyncGymEnv) -> None:
         self.policy.build(env)

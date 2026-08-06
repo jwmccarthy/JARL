@@ -27,9 +27,7 @@ class Policy(CompositeNet, ABC):
         return super().build(env, action_space(env).flat_dim)
 
     def initial_state(self, batch_size: int):
-        if getattr(self, "_composed", False) and hasattr(
-            self.body, "initial_state"
-        ):
+        if hasattr(self.body, "initial_state"):
             return self.body.initial_state(batch_size, device=self.device)
         return None
 
@@ -132,21 +130,14 @@ class MultiCategoricalPolicy(Policy):
     ) -> None:
         super().__init__(foot, body, head)
         self.action_codec = action_codec
-        self._composed = False
 
     def build(self, env: SyncGymEnv) -> Self:
         output_dim = self._configure_actions(env)
         return CompositeNet.build(self, env, output_dim)
 
-    def build_composed(self, env: SyncGymEnv, in_dim: int) -> Self:
-        if self.head is None or not hasattr(self.head, "build"):
-            raise TypeError("composed policy requires a buildable head")
-        
-        output_dim = self._configure_actions(env)
-        self.head.build(in_dim, output_dim)
-        self._composed = True
-
-        return self
+    def _build_shared_head(self, env: SyncGymEnv, in_dim: int) -> None:
+        self._build_head(in_dim, self._configure_actions(env))
+        self.built = True
 
     def _configure_actions(self, env: SyncGymEnv) -> int:
         space = action_space(env)
@@ -173,9 +164,6 @@ class MultiCategoricalPolicy(Policy):
         *,
         deterministic: bool = False,
     ) -> PolicyOutput:
-        if not self._composed:
-            return super().act(observation, state, deterministic=deterministic)
-        
         features, next_state = self.body_features(observation, state)
         output = self.act_from_features(
             features,
@@ -194,11 +182,6 @@ class MultiCategoricalPolicy(Policy):
         *,
         reset:       th.Tensor | None = None,
     ) -> Evaluation:
-        if not self._composed:
-            return super().evaluate_actions(
-                observation, action, state, reset=reset
-            )
-        
         features, _ = self.body_features(observation, state, reset)
 
         return self.evaluate_from_features(features, observation, action)
