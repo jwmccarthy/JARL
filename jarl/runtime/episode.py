@@ -28,13 +28,26 @@ class EpisodeTracker:
         if not done.any():
             return {}
 
-        metrics = {
-            "episode": {
-                "reward": self._reward[done].mean().item(),
-                "length": self._length[done].float().mean().item(),
-            },
-        }
+        metrics = self._metrics("", done)
+        for name, mask in step.episode_groups.items():
+            mask = th.as_tensor(mask, dtype=th.bool, device=reward.device)
+            if mask.shape != done.shape:
+                raise ValueError("episode group masks must match done flags")
+            metrics["episode"] |= self._metrics(name, done & mask)["episode"]
+
         self._reward[done] = 0
         self._length[done] = 0
 
         return metrics
+
+    def _metrics(self, name: str, done: th.Tensor) -> dict[str, dict[str, float]]:
+        if not done.any():
+            return {"episode": {}}
+
+        prefix = f"{name}_" if name else ""
+        return {
+            "episode": {
+                f"{prefix}reward": self._reward[done].mean().item(),
+                f"{prefix}length": self._length[done].float().mean().item(),
+            },
+        }

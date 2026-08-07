@@ -333,6 +333,7 @@ class SelfPlayRunner:
         self._timestep_count = self.matchmaker.learner_count
         output = self._act(observation)
         env_step = _make_env_step(self.env.step(output.action))
+        env_step.episode_groups = self._episode_groups()
         env_step.info = self._learner_episode_info(env_step)
 
         context = CaptureContext(observation, self.state, output, env_step)
@@ -345,12 +346,16 @@ class SelfPlayRunner:
         self.matchmaker.rematch(env_step.done)
         return env_step
 
-    def _learner_episode_info(self, env_step) -> dict:
-        finished = env_step.done.nonzero(as_tuple=True)[0]
-        if not len(finished):
-            return env_step.info
+    def _episode_groups(self) -> dict[str, th.Tensor]:
+        historical = self._historical_mask()
+        learner = self.matchmaker.learner_mask
 
-        learner = self.matchmaker.learner_mask[finished].cpu().tolist()
+        return {
+            "current":    learner & ~historical,
+            "historical": learner & historical,
+        }
+
+    def _historical_mask(self) -> th.Tensor:
         historical_matches = (
             self.matchmaker.opponent_ids.view(
                 self.matchmaker.num_matches, self.matchmaker.players_per_match
@@ -358,12 +363,18 @@ class SelfPlayRunner:
             .ge(0)
             .any(-1)
         )
-        historical = (
-            historical_matches
-            .repeat_interleave(self.matchmaker.players_per_match)[finished]
-            .cpu()
-            .tolist()
+
+        return historical_matches.repeat_interleave(
+            self.matchmaker.players_per_match
         )
+
+    def _learner_episode_info(self, env_step) -> dict:
+        finished = env_step.done.nonzero(as_tuple=True)[0]
+        if not len(finished):
+            return env_step.info
+
+        learner = self.matchmaker.learner_mask[finished].cpu().tolist()
+        historical = self._historical_mask()[finished].cpu().tolist()
 
         info = dict(env_step.info)
         for key, values in tuple(info.items()):

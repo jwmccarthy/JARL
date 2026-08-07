@@ -30,6 +30,7 @@ class EnvStep:
     truncated:   Any
     info:        dict[str, Any] = field(default_factory=dict)
     bootstrap:   Any = None
+    episode_groups: dict[str, Any] = field(default_factory=dict)
 
     @property
     def done(self):
