@@ -4,7 +4,7 @@ from torch import Tensor
 from typing import List, Self
 
 from jarl.modules.recurrent import GRU, LSTM
-from jarl.modules.utils import init_layer
+from jarl.modules.layer import orthogonal_init
 
 
 __all__ = ["CNN", "GRU", "LSTM", "MLP"]
@@ -18,7 +18,7 @@ class MLP(nn.Module):
         self,
         dims: List[int] = [64, 64],
         func: nn.Module = nn.ReLU,
-        init_func=init_layer,
+        init_func=orthogonal_init(),
         out_init_func=None,
     ) -> None:
         super().__init__()
@@ -63,7 +63,7 @@ class CNN(nn.Module):
         dims:   List[int] = [32, 64],
         kernel: List[int] = [8, 4],
         stride: List[int] = [4, 2],
-        init_func=init_layer
+        init_func=orthogonal_init()
     ) -> None:
         super().__init__()
         self.dims = dims

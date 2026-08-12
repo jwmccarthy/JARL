@@ -282,16 +282,22 @@ class SelfPlayRunner:
         env,
         policy,
         buffer,
-        opponent_pool:       SnapshotPool,
-        matchmaker:          SelfPlayMatchmaker,
-        snapshot_policy,
+        opponent_pool:       SnapshotPool | None = None,
+        matchmaker:          SelfPlayMatchmaker | None = None,
+        snapshot_policy=None,
         historical_policies: int = 1,
         captures=(),
     ) -> None:
+        if matchmaker is None:
+            raise ValueError("self-play runner requires a matchmaker")
         if historical_policies < 1:
             raise ValueError("historical_policies must be positive")
         if env.n_envs != matchmaker.n_envs:
             raise ValueError("environment and matchmaker actor counts differ")
+        if opponent_pool is None and matchmaker.current_fraction != 1.0:
+            raise ValueError("self-play without an opponent pool must be fully current")
+        if opponent_pool is not None and snapshot_policy is None:
+            raise ValueError("snapshot self-play requires a snapshot policy")
 
         self.env = env
         self.policy = policy
@@ -393,6 +399,9 @@ class SelfPlayRunner:
         return info
 
     def after_update(self, timesteps: int) -> None:
+        if self.opponent_pool is None:
+            return
+
         added = self.opponent_pool.maybe_add(
             self.snapshot_policy,
             timesteps,

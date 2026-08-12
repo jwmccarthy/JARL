@@ -8,6 +8,7 @@ from jarl.data.batch import TensorBatch
 
 @dataclass(frozen=True)
 class TensorDataset:
+    
     data: TensorBatch
 
     def __post_init__(self) -> None:

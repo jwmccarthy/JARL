@@ -6,7 +6,7 @@ from typing import Self
 from jarl.envs.gym import SyncGymEnv
 from jarl.envs.space import observation_space
 from jarl.modules.encoder.base import Encoder
-from jarl.modules.utils import init_layer
+from jarl.modules.layer import orthogonal_init
 
 
 class FlattenEncoder(Encoder):
@@ -27,7 +27,7 @@ class LinearEncoder(Encoder):
         self,
         out_dim: int,
         func:    type[nn.Module] = nn.ReLU,
-        init_func=init_layer,
+        init_func=orthogonal_init(),
     ) -> None:
         super().__init__()
         if out_dim < 1:
