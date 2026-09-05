@@ -90,8 +90,6 @@ class SnapshotPool:
                 (key for key in self._snapshots if key not in protected), None
             )
             if old_id is None:
-                # Capacity is a soft limit while snapshots remain assigned to
-                # unfinished matches.
                 break
             self._snapshots.pop(old_id)
             self._active.pop(old_id, None)
@@ -278,6 +276,31 @@ class SelfPlayMatchmaker:
 
         self.learner_count = int(self.learner_mask.sum().item())
 
+    def remap_stale_opponents(self) -> th.Tensor:
+        opponents = self.opponent_ids.view(
+            self.num_matches, self.players_per_match
+        )
+        assigned = opponents.ge(0)
+        active = (
+            opponents[..., None] == self._historical_ids[None, None, :]
+        ).any(dim=-1)
+        stale = assigned & ~active
+        stale_matches = stale.any(dim=-1)
+        count = int(stale_matches.sum().item())
+        if count:
+            selected = th.multinomial(
+                self._historical_weights,
+                count,
+                replacement=True,
+                generator=self._generator,
+            )
+            replacements = th.full(
+                (self.num_matches,), -1, dtype=th.int64, device=self.device
+            )
+            replacements[stale_matches] = self._historical_ids[selected]
+            opponents[stale] = replacements[:, None].expand_as(opponents)[stale]
+        return stale.flatten()
+
 
 class SelfPlayRunner:
     """Collect experience while routing historical actors to frozen policies."""
@@ -409,24 +432,18 @@ class SelfPlayRunner:
         if not self.opponent_pool.ready(timesteps):
             return
 
-        assigned_ids = tuple(
-            self.matchmaker.opponent_ids[
-                self.matchmaker.opponent_ids.ge(0)
-            ].unique().tolist()
-        )
-        protected_ids = tuple(dict.fromkeys(
-            (*self.matchmaker.historical_ids, *assigned_ids)
-        ))
-
         self.opponent_pool.add(
             self.snapshot_policy,
             timesteps,
-            protected_ids=protected_ids,
         )
 
         self.matchmaker.set_historical_ids(
             self.opponent_pool.select_ids(self.historical_policies)
         )
+        remapped = self.matchmaker.remap_stale_opponents()
+        if self.state is not None:
+            keep = (~remapped).view(-1, *(1,) * (self.state.ndim - 1))
+            self.state = self.state * keep
 
     def _state_for(self, mask: th.Tensor):
         return None if self.state is None else self.state[mask]
