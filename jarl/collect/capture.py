@@ -99,7 +99,7 @@ class RecurrentCriticCapture(CaptureBase):
             raise ValueError("recurrent critic capture requires a recurrent critic")
 
     @th.no_grad()
-    def __call__(self, context: CaptureContext) -> dict[str, th.Tensor]:
+    def _capture(self, context: CaptureContext) -> dict[str, th.Tensor]:
         if self.state is None:
             raise RuntimeError("recurrent critic capture must be reset before use")
 
