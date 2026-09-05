@@ -90,6 +90,8 @@ class SnapshotPool:
                 (key for key in self._snapshots if key not in protected), None
             )
             if old_id is None:
+                # Capacity is a soft limit while snapshots remain assigned to
+                # unfinished matches.
                 break
             self._snapshots.pop(old_id)
             self._active.pop(old_id, None)
@@ -110,10 +112,13 @@ class SnapshotPool:
         timesteps:     int,
         protected_ids: tuple[int, ...] = (),
     ) -> bool:
-        if timesteps - self._last_snapshot < self.snapshot_interval:
+        if not self.ready(timesteps):
             return False
         self.add(policy, timesteps, protected_ids)
         return True
+
+    def ready(self, timesteps: int) -> bool:
+        return timesteps - self._last_snapshot >= self.snapshot_interval
 
     def sample_ids(self, count: int) -> tuple[int, ...]:
         """Sample without replacement, weighting newer snapshots by rank."""
@@ -401,16 +406,24 @@ class SelfPlayRunner:
     def after_update(self, timesteps: int) -> None:
         if self.opponent_pool is None:
             return
+        if not self.opponent_pool.ready(timesteps):
+            return
 
-        added = self.opponent_pool.maybe_add(
+        assigned_ids = tuple(
+            self.matchmaker.opponent_ids[
+                self.matchmaker.opponent_ids.ge(0)
+            ].unique().tolist()
+        )
+        protected_ids = tuple(dict.fromkeys(
+            (*self.matchmaker.historical_ids, *assigned_ids)
+        ))
+
+        self.opponent_pool.add(
             self.snapshot_policy,
             timesteps,
-            protected_ids=self.matchmaker.historical_ids,
+            protected_ids=protected_ids,
         )
 
-        if not added:
-            return
-    
         self.matchmaker.set_historical_ids(
             self.opponent_pool.select_ids(self.historical_policies)
         )
