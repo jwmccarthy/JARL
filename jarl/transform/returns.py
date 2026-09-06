@@ -77,6 +77,61 @@ class GAE:
         )
 
 
+class SemiMarkovGAE:
+
+    def __init__(
+        self,
+        gamma:        float = 0.99,
+        lambda_:      float = 0.95,
+        reward_field: str = "reward",
+    ) -> None:
+        self.gamma = gamma
+        self.lambda_ = lambda_
+        self.reward_field = reward_field
+
+    @th.no_grad()
+    def __call__(self, batch: TensorBatch, context: PrepareContext) -> TensorBatch:
+        value = batch["baseline_value"]
+        next_value = batch["baseline_next_value"]
+        reward = batch[self.reward_field]
+        duration = batch["duration"]
+        valid = batch["valid"].bool()
+
+        bootstrap = batch.get("bootstrap")
+        if bootstrap is None:
+            bootstrap = ~batch["terminated"]
+        bootstrap = bootstrap.to(value.dtype)
+
+        delta = (
+            reward
+            + (self.gamma ** duration) * next_value * bootstrap
+            - value
+        )
+
+        done = batch["terminated"] | batch["truncated"]
+        valid_float = valid.to(value.dtype)
+        advantage = th.zeros_like(value)
+
+        for step in reversed(range(len(value))):
+            if step == len(value) - 1:
+                continue_mask = th.zeros_like(valid[step])
+                next_advantage = th.zeros_like(value[step])
+            else:
+                continue_mask = valid[step] & valid[step + 1] & ~done[step]
+                next_advantage = advantage[step + 1]
+
+            discount = (self.gamma ** duration[step]) * self.lambda_
+            advantage[step] = valid_float[step] * (
+                delta[step]
+                + discount * continue_mask.to(value.dtype) * next_advantage
+            )
+
+        return batch.with_fields(
+            advantage=advantage,
+            returns=(advantage + value) * valid_float,
+        )
+
+
 class DiscountedReturns:
 
     def __init__(

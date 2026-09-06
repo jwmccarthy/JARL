@@ -53,6 +53,143 @@ class SequenceBatch:
     initial_critic_state: th.Tensor | None = None
 
 
+@dataclass(frozen=True)
+class ChunkBatch:
+    data:             TensorBatch
+    valid:            th.Tensor
+    duration:         th.Tensor
+    planned_duration: th.Tensor
+
+
+class TrajectoryChunkMinibatches:
+    def __init__(
+        self,
+        horizon:     int,
+        jitter:      int,
+        batch_size:  int,
+        epochs:      int = 1,
+    ) -> None:
+        if horizon < 1 or jitter < 0 or batch_size < 1 or epochs < 1:
+            raise ValueError("chunk settings must be positive")
+
+        self.horizon = horizon
+        self.jitter = jitter
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.max_duration = horizon + jitter
+        if batch_size < self.max_duration:
+            raise ValueError("batch size must fit the longest chunk")
+        self._epoch_callback = None
+
+    def set_epoch_callback(self, callback) -> None:
+        self._epoch_callback = callback
+
+    def __call__(self, data: TensorBatch):
+        if len(data.shape) < 2:
+            raise ValueError("rollout data must be [time, environment, ...]")
+
+        time, num_envs = data.shape[:2]
+        done = (data["terminated"] | data["truncated"]).swapaxes(0, 1).cpu()
+
+        for _ in range(self.epochs):
+            chunks = []
+            for env in range(num_envs):
+                chunks.extend(self._chunk_env(done[env], env, time))
+
+            if not chunks:
+                raise RuntimeError("rollout contains no chunks")
+
+            order = th.randperm(len(chunks)).tolist()
+            yield from self._pack_batches(data, chunks, order)
+
+            if self._epoch_callback is not None:
+                self._epoch_callback()
+
+    def _chunk_env(
+        self,
+        done: th.Tensor,
+        env:  int,
+        time: int,
+    ) -> list[tuple[int, int, int, int, int]]:
+        boundaries = done.nonzero(as_tuple=True)[0].tolist()
+
+        if not boundaries or boundaries[-1] != time - 1:
+            boundaries.append(time - 1)
+
+        boundaries = sorted(set(boundaries))
+
+        chunks = []
+        start = 0
+        for boundary in boundaries:
+            while start <= boundary:
+                remaining = boundary - start + 1
+                low = max(1, self.horizon - self.jitter)
+                high = self.horizon + self.jitter
+                planned = int(th.randint(low, high + 1, (1,)).item())
+                duration = min(planned, remaining)
+                end = min(start + duration, boundary + 1)
+                duration = end - start
+
+                chunks.append((env, start, end, duration, planned))
+                start = end
+
+            start = boundary + 1
+
+        return chunks
+
+    def _pack_batches(
+        self,
+        data:   TensorBatch,
+        chunks: list[tuple[int, int, int, int, int]],
+        order:  list[int],
+    ):
+        selected = []
+        valid_steps = 0
+
+        for index in order:
+            env, start, end, duration, planned = chunks[index]
+
+            if valid_steps + duration > self.batch_size and selected:
+                yield self._build_batch(data, selected)
+                selected = []
+                valid_steps = 0
+
+            selected.append((env, start, end, duration, planned))
+            valid_steps += duration
+
+        if selected:
+            yield self._build_batch(data, selected)
+
+    def _build_batch(
+        self,
+        data:    TensorBatch,
+        chunks:  list[tuple[int, int, int, int, int]],
+    ) -> ChunkBatch:
+        max_duration = self.max_duration
+        device = data.device
+        environments, starts, _, durations, planned = zip(*chunks)
+        environments = th.tensor(environments, dtype=th.long, device=device)[:, None]
+        starts = th.tensor(starts, dtype=th.long, device=device)[:, None]
+        duration = th.tensor(durations, dtype=th.long, device=device)
+        planned_duration = th.tensor(planned, dtype=th.long, device=device)
+        offsets = th.arange(max_duration, device=device)[None, :]
+        valid = offsets < duration[:, None]
+        time_index = (starts + offsets).clamp_max(data.shape[0] - 1)
+
+        batch = {}
+        for key, value in data.items():
+            gathered = value[time_index, environments]
+            mask = valid.view(*valid.shape, *((1,) * (gathered.ndim - 2)))
+            batch[key] = th.where(mask, gathered, th.zeros_like(gathered))
+
+        return ChunkBatch(
+            data=TensorBatch(batch),
+            valid=valid,
+            duration=duration,
+            planned_duration=planned_duration,
+        )
+
+
 class RecurrentRolloutMinibatches:
     required_fields = (
         "policy_state",
@@ -60,6 +197,7 @@ class RecurrentRolloutMinibatches:
         "terminated",
         "truncated",
         "learner_mask",
+        "valid",
     )
 
     def __init__(
@@ -91,24 +229,31 @@ class RecurrentRolloutMinibatches:
 
         chunks = time // self.sequence_length
         sequences = self._build_sequences(data, chunks, num_envs)
-        learner_mask = sequences.get("learner_mask")
+        structural_valid = self._structural_valid(sequences, chunks, num_envs)
+        combined_valid = self._combine_valid(sequences, chunks, num_envs)
 
-        if learner_mask is None:
-            eligible = th.arange(chunks * num_envs, device=data.device)
-        else:
-            eligible = learner_mask.any(dim=1).nonzero(as_tuple=True)[0]
+        eligible = combined_valid.any(dim=1).nonzero(as_tuple=True)[0]
         if not len(eligible):
-            raise RuntimeError("rollout contains no learner sequences")
+            raise RuntimeError("rollout contains no valid sequences")
 
         batch_sizes = self._batch_sizes(len(eligible))
 
-        done = sequences["terminated"] | sequences["truncated"]
+        done = (
+            sequences["terminated"] | sequences["truncated"]
+        ) & structural_valid
         has_reset = done[:, :-1].any(dim=1)
         clean = eligible[~has_reset[eligible]]
         resetting = eligible[has_reset[eligible]]
 
         for _ in range(self.epochs):
-            yield from self._sample_epoch(sequences, clean, resetting, batch_sizes)
+            yield from self._sample_epoch(
+                sequences,
+                clean,
+                resetting,
+                batch_sizes,
+                combined_valid,
+                structural_valid,
+            )
             if self._epoch_callback is not None:
                 self._epoch_callback()
 
@@ -178,12 +323,53 @@ class RecurrentRolloutMinibatches:
 
         return sequences
 
+    def _combine_valid(
+        self,
+        sequences: dict[str, th.Tensor],
+        chunks:    int,
+        num_envs:  int,
+    ) -> th.Tensor:
+        device = next(iter(sequences.values())).device
+        learner_mask = sequences.get("learner_mask")
+        valid = sequences.get("valid")
+
+        if learner_mask is None and valid is None:
+            return th.ones(
+                chunks * num_envs,
+                self.sequence_length,
+                dtype=th.bool,
+                device=device,
+            )
+        if learner_mask is None:
+            return valid.bool()
+        if valid is None:
+            return learner_mask.bool()
+        return learner_mask.bool() & valid.bool()
+
+    def _structural_valid(
+        self,
+        sequences: dict[str, th.Tensor],
+        chunks:    int,
+        num_envs:  int,
+    ) -> th.Tensor:
+        valid = sequences.get("valid")
+        if valid is not None:
+            return valid.bool()
+        return th.ones(
+            chunks * num_envs,
+            self.sequence_length,
+            dtype=th.bool,
+            device=next(iter(sequences.values())).device,
+        )
+
     def _sample_epoch(
         self,
-        sequences:   dict[str, th.Tensor],
-        clean:       th.Tensor,
-        resetting:   th.Tensor,
-        batch_sizes: list[int],
+        sequences:      dict[str, th.Tensor],
+        clean:          th.Tensor,
+        resetting:      th.Tensor,
+        batch_sizes:    list[int],
+        combined_valid: th.Tensor,
+        structural_valid: th.Tensor,
     ):
         device = next(iter(sequences.values())).device
         clean = clean[th.randperm(len(clean), device=device)]
@@ -192,7 +378,13 @@ class RecurrentRolloutMinibatches:
             left = 0
             for size in batch_sizes:
                 selected = clean[left : left + size]
-                yield self._build_batch(sequences, selected, has_reset=False)
+                yield self._build_batch(
+                    sequences,
+                    selected,
+                    combined_valid,
+                    structural_valid,
+                    has_reset=False,
+                )
                 left += size
             return
 
@@ -209,7 +401,13 @@ class RecurrentRolloutMinibatches:
         # instead of synchronizing a CUDA tensor back to Python.
         for batch in th.randperm(len(batches), device="cpu").tolist():
             selected, has_reset = batches[batch]
-            yield self._build_batch(sequences, selected, has_reset=has_reset)
+            yield self._build_batch(
+                sequences,
+                selected,
+                combined_valid,
+                structural_valid,
+                has_reset=has_reset,
+            )
 
     def _batch_sizes(self, sequence_count: int) -> list[int]:
         """Cache the balanced optimizer-batch layout across epochs."""
@@ -224,10 +422,12 @@ class RecurrentRolloutMinibatches:
 
     @staticmethod
     def _build_batch(
-        sequences: dict[str, th.Tensor],
-        selected:  th.Tensor,
+        sequences:      dict[str, th.Tensor],
+        selected:       th.Tensor,
+        combined_valid: th.Tensor,
+        structural_valid: th.Tensor,
         *,
-        has_reset: bool,
+        has_reset:      bool,
     ) -> SequenceBatch:
         state = sequences["policy_state"].index_select(0, selected)[:, 0]
         critic_state = sequences.get("critic_state")
@@ -243,18 +443,14 @@ class RecurrentRolloutMinibatches:
             if key not in ("policy_state", "critic_state")
         }
         steps = TensorBatch(step_data)
+        valid = combined_valid.index_select(0, selected).swapaxes(0, 1)
 
         reset = None
         if has_reset:
-            done = steps["terminated"] | steps["truncated"]
+            reset_valid = structural_valid.index_select(0, selected).swapaxes(0, 1)
+            done = (steps["terminated"] | steps["truncated"]) & reset_valid
             reset = th.zeros_like(done)
             reset[1:] = done[:-1]
-        valid = steps.get("learner_mask")
-
-        if valid is None:
-            valid = th.ones(
-                steps.shape[:2], dtype=th.bool, device=steps.device
-            )
 
         return SequenceBatch(
             steps=steps,

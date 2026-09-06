@@ -37,6 +37,9 @@ class PPOLoss:
         self.policy = policy
         self.critic = critic
         self.config = config
+        self.critic_recurrent = (
+            critic is not None and hasattr(critic.body, "initial_state")
+        )
 
     def after_update(self) -> None:
         return
@@ -100,11 +103,16 @@ class PPOLoss:
             reset=reset,
         )
         if (value := evaluation.value) is None:
-            value = self.critic.evaluate_values(
-                observation,
-                critic_state,
-                reset=reset,
-            )
+            if self.critic_recurrent:
+                if critic_state is None:
+                    raise ValueError("recurrent critic requires an initial state")
+                value = self.critic.evaluate_values(
+                    observation,
+                    critic_state,
+                    reset=reset,
+                )
+            else:
+                value = self.critic.evaluate_values(observation)
 
         return evaluation, value
 
@@ -114,14 +122,10 @@ class PPOLoss:
             valid = th.ones_like(sample["advantage"], dtype=th.bool)
             return sample, None, None, None, valid
 
-        critic_state = sample.initial_critic_state
-        if critic_state is None:
-            critic_state = sample.initial_state
-
         return (
             sample.steps,
             sample.initial_state,
-            critic_state,
+            sample.initial_critic_state,
             sample.reset,
             sample.valid,
         )
