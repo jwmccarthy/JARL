@@ -91,14 +91,14 @@ class TrajectoryChunkMinibatches:
         time, num_envs = data.shape[:2]
         done = (data["terminated"] | data["truncated"]).swapaxes(0, 1).cpu()
 
+        chunks = []
+        for env in range(num_envs):
+            chunks.extend(self._chunk_env(done[env], env, time))
+
+        if not chunks:
+            raise RuntimeError("rollout contains no chunks")
+
         for _ in range(self.epochs):
-            chunks = []
-            for env in range(num_envs):
-                chunks.extend(self._chunk_env(done[env], env, time))
-
-            if not chunks:
-                raise RuntimeError("rollout contains no chunks")
-
             order = th.randperm(len(chunks)).tolist()
             yield from self._pack_batches(data, chunks, order)
 
