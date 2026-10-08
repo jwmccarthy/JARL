@@ -6,6 +6,7 @@ from jarl.collect.capture import (
     CriticCapture,
     build_record,
 )
+from jarl.collect.goals import GoalConditionedRunner, ReplayGoalSampler
 from jarl.collect.runner import Runner
 from jarl.collect.self_play import SelfPlayMatchmaker, SelfPlayRunner, SnapshotPool
 
@@ -19,5 +20,7 @@ __all__ = [
     "SelfPlayRunner",
     "SnapshotPool",
     "CriticCapture",
+    "GoalConditionedRunner",
+    "ReplayGoalSampler",
     "build_record",
 ]

@@ -98,7 +98,7 @@ def _transition_observation(observation, terminated, truncated, info):
     has_final = "final_obs" in info or "final_observation" in info
 
     if isinstance(observation, th.Tensor):
-        next_obs = observation.clone() if has_final else observation
+        next_obs = observation
         done = th.as_tensor(
             terminated, dtype=th.bool, device=observation.device
         ) | th.as_tensor(truncated, dtype=th.bool, device=observation.device)
@@ -121,7 +121,12 @@ def _transition_observation(observation, terminated, truncated, info):
         if isinstance(observation, th.Tensor):
             mask = th.as_tensor(mask, dtype=th.bool, device=observation.device)
             final_obs = th.as_tensor(final_obs, device=observation.device)
-            next_obs[mask] = final_obs[mask]
+            # A masked tensor assignment synchronizes CUDA to count selected
+            # rows. Keep terminal-observation replacement GPU-resident.
+            next_obs = th.where(
+                mask.reshape(-1, *((1,) * (observation.ndim - 1))),
+                final_obs, next_obs,
+            )
         else:
             mask = np.asarray(mask, dtype=bool)
             final_obs = np.asarray(final_obs)

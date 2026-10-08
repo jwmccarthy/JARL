@@ -15,6 +15,7 @@ class Trainer:
         value_scheduler=None,
         update_callback=None,
         episode_tracker: EpisodeTracker | None = None,
+        track_episodes: bool = True,
     ) -> None:
         self.runner = runner
         self.buffer = buffer
@@ -24,7 +25,7 @@ class Trainer:
         self.checkpoint = checkpoint
         self.value_scheduler = value_scheduler
         self.update_callback = update_callback
-        self.episode_tracker = episode_tracker or EpisodeTracker()
+        self.episode_tracker = (episode_tracker or EpisodeTracker()) if track_episodes else None
         self.clock = Clock()
         self.learner.set_progress_callback(self.logger)
 
@@ -36,7 +37,8 @@ class Trainer:
             self.value_scheduler.advance(self.clock.env_steps)
 
         self.runner.reset()
-        self.episode_tracker.reset()
+        if self.episode_tracker is not None:
+            self.episode_tracker.reset()
 
         if total_timesteps < self.runner.timestep_count:
             raise ValueError("total_timesteps is smaller than one vector step")
@@ -55,12 +57,13 @@ class Trainer:
         timesteps = self.runner.timestep_count
         self.clock.vector_steps += 1
         self.clock.env_steps += timesteps
-        self.clock.episodes += int(env_step.done.sum())
         self.logger.advance(timesteps)
 
-        episode_metrics = self.episode_tracker.update(env_step)
-        if episode_metrics:
-            self.logger.update(episode_metrics, step=self.clock.env_steps)
+        if self.episode_tracker is not None:
+            self.clock.episodes += int(env_step.done.sum())
+            episode_metrics = self.episode_tracker.update(env_step)
+            if episode_metrics:
+                self.logger.update(episode_metrics, step=self.clock.env_steps)
 
         if self.value_scheduler is not None:
             self.value_scheduler.advance(self.clock.env_steps)

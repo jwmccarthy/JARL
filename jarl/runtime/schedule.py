@@ -32,9 +32,15 @@ class OffPolicySchedule:
         self,
         learning_starts_env_steps: int,
         update_every_vector_steps: int = 1,
+        min_replay_vector_steps: int = 0,
+        flush_partial: bool = False,
     ) -> None:
+        if min_replay_vector_steps < 0:
+            raise ValueError("minimum replay steps cannot be negative")
         self.learning_starts_env_steps = learning_starts_env_steps
         self.update_every_vector_steps = update_every_vector_steps
+        self.min_replay_vector_steps = min_replay_vector_steps
+        self.flush_partial = flush_partial
 
     def progress_vector_steps(self, buffer) -> int:
         return self.update_every_vector_steps
@@ -61,6 +67,8 @@ class OffPolicySchedule:
     def ready(self, buffer, clock) -> bool:
         return (
             clock.env_steps >= self.learning_starts_env_steps
+            and (not self.min_replay_vector_steps
+                 or buffer.size >= self.min_replay_vector_steps)
             and clock.vector_steps % self.update_every_vector_steps == 0
         )
 
@@ -71,4 +79,7 @@ class OffPolicySchedule:
         return None
 
     def pending(self, buffer) -> bool:
-        return False
+        return self.flush_partial and (
+            not self.min_replay_vector_steps
+            or buffer.size >= self.min_replay_vector_steps
+        )
