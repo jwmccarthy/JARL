@@ -16,26 +16,14 @@ def discounted_suffix_sum(
     if discount == 0.0:
         return value.clone()
 
-    time = len(value)
-    shape = (time,) + (1,) * (value.ndim - 1)
-    powers = th.pow(
-        th.as_tensor(discount, dtype=value.dtype, device=value.device),
-        th.arange(time, dtype=value.dtype, device=value.device),
-    ).view(shape)
-    weighted = value * powers
-    suffix = th.flip(th.cumsum(th.flip(weighted, dims=(0,)), dim=0), dims=(0,))
+    result = th.empty_like(value)
+    running = th.zeros_like(value[0])
 
-    positions = th.arange(time, device=value.device).view(shape).expand_as(value)
-    boundaries = th.where(continues, time, positions)
-    boundaries[-1] = time - 1
-    segment_end = th.flip(
-        th.cummin(th.flip(boundaries, dims=(0,)), dim=0).values,
-        dims=(0,),
-    )
-    padded = th.cat((suffix, th.zeros_like(suffix[:1])), dim=0)
-    after_segment = padded.gather(0, segment_end + 1)
+    for index in range(len(value) - 1, -1, -1):
+        running = value[index] + discount * running * continues[index]
+        result[index] = running
 
-    return (suffix - after_segment) / powers
+    return result
 
 
 class GAE:
